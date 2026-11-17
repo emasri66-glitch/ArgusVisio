@@ -1,0 +1,1564 @@
+<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style></head><body>
+<title>ArgusVisio Prototyp</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;700;800&family=Overpass+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: Lageplan-Leitstand. Ebenen links, interaktive Karte in der Mitte, Routenplaner + Meldungen rechts; darunter Tunnel-Monitor und Canvas-Abgleich. Stapelt sich auf dem Handy. */
+:root{
+  --bg:#eceee8; --surface:#ffffff; --surface-2:#f4f5f1; --ink:#16212b; --muted:#5b6670; --line:#d3d7cf;
+  --accent:#0a5fa8; --accent-ink:#ffffff;
+  --land:#e6eadc; --alps:#d6dacb; --water:#b7d3e8; --road:#ffffff; --casing:#bfc5ba; --halo:#e6eadc;
+  --ok:#2c8440; --warn:#bf7400; --crit:#c42d2d; --drone:#8048c8; --accd:#c23a6b;
+  --display:"Overpass",ui-sans-serif,system-ui,sans-serif;
+  --mono:"Overpass Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f1419; --surface:#172028; --surface-2:#1e2932; --ink:#e2e8ed; --muted:#93a1ac; --line:#2c3843;
+  --accent:#5aa8ef; --accent-ink:#0b1620;
+  --land:#1a2420; --alps:#232e2a; --water:#1f3d56; --road:#4a5864; --casing:#0d1317; --halo:#1a2420;
+  --ok:#5cc277; --warn:#f0a830; --crit:#ff6b6b; --drone:#b48cff; --accd:#ff7aa8; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1419; --surface:#172028; --surface-2:#1e2932; --ink:#e2e8ed; --muted:#93a1ac; --line:#2c3843;
+  --accent:#5aa8ef; --accent-ink:#0b1620;
+  --land:#1a2420; --alps:#232e2a; --water:#1f3d56; --road:#4a5864; --casing:#0d1317; --halo:#1a2420;
+  --ok:#5cc277; --warn:#f0a830; --crit:#ff6b6b; --drone:#b48cff; --accd:#ff7aa8; color-scheme:dark}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--display);font-size:14px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 48px}
+.wrap{max-width:1440px;margin:0 auto;display:grid;gap:18px}
+button{font-family:var(--display)}
+button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+
+/* Header */
+.top{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.brand svg{width:42px;height:42px;flex:none}
+.brand h1{margin:0;font-weight:800;font-size:clamp(22px,3vw,30px);line-height:1;letter-spacing:-.01em}
+.brand .sub{font-size:12px;color:var(--muted);margin-top:4px}
+.demo{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.demo .lbl{font:600 11px var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.btn{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:8px 12px;font-weight:600;font-size:13px;cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.danger{color:var(--crit)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
+/* Main grid */
+.app{display:grid;grid-template-columns:220px minmax(0,1fr) 370px;grid-template-areas:"layers map side";gap:16px;align-items:start}
+@media (max-width:1180px){.app{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"map map" "layers side"}}
+@media (max-width:720px){.app{grid-template-columns:minmax(0,1fr);grid-template-areas:"map" "side" "layers"}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;gap:12px;min-width:0}
+.panel h2{margin:0;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.layers{grid-area:layers}
+.mapcol{grid-area:map;display:grid;gap:12px;min-width:0}
+.side{grid-area:side;display:grid;gap:16px;min-width:0}
+
+/* Layers */
+.layer{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:start;padding:8px;border-radius:10px;cursor:pointer}
+.layer:hover{background:var(--surface-2)}
+.layer input{margin:2px 0 0;accent-color:var(--accent);width:16px;height:16px}
+.layer b{display:block;font-size:13px;font-weight:700;line-height:1.25}
+.layer small{display:block;color:var(--muted);font-size:11.5px;line-height:1.3}
+.sw{width:14px;height:14px;border-radius:4px;margin-top:2px}
+
+/* Map */
+.mapbox{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;position:relative}
+.mapbox svg{display:block;width:100%;height:auto}
+.maphead{display:flex;flex-wrap:wrap;gap:6px 14px;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
+.maphead b{color:var(--ink)}
+.land{fill:var(--land)} .alps{fill:var(--alps)} .alp-stroke{stroke:var(--casing);stroke-width:1}
+.water{fill:var(--water)} .river{fill:none;stroke:var(--water);stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
+.casing{fill:none;stroke:var(--casing);stroke-linecap:round;stroke-linejoin:round}
+.road{fill:none;stroke:var(--road);stroke-linecap:round;stroke-linejoin:round}
+.town-dot{fill:var(--ink)}
+.town{font:700 13px var(--display);fill:var(--ink);paint-order:stroke;stroke:var(--halo);stroke-width:4px;stroke-linejoin:round}
+.lake-l{font:italic 400 11px var(--display);fill:var(--muted);paint-order:stroke;stroke:var(--halo);stroke-width:3px}
+.small-l{font:600 10.5px var(--display);fill:var(--muted);paint-order:stroke;stroke:var(--halo);stroke-width:3px;stroke-linejoin:round}
+.dz{fill:color-mix(in srgb,var(--drone) 16%,transparent);stroke:var(--drone);stroke-width:1.5;stroke-dasharray:5 4;cursor:pointer}
+.dz-band{fill:none;stroke:color-mix(in srgb,var(--drone) 22%,transparent);stroke-width:18;stroke-linecap:round;stroke-linejoin:round;cursor:pointer}
+.dz-l{font:700 10.5px var(--display);fill:var(--drone);paint-order:stroke;stroke:var(--halo);stroke-width:3px}
+.rt{fill:none;stroke-linecap:round;stroke-linejoin:round;stroke:var(--muted);stroke-width:3;opacity:.35}
+.rt.on{stroke:var(--accent);stroke-width:7;opacity:1}
+.rt.on.bad{stroke:var(--crit)}
+.rt-badge circle{fill:var(--surface);stroke:var(--muted);stroke-width:2}
+.rt-badge text{font:800 12px var(--display);fill:var(--ink)}
+.rt-badge.on circle{fill:var(--accent);stroke:var(--accent)}
+.rt-badge.on text{fill:var(--accent-ink)}
+.rt-badge.on.bad circle{fill:var(--crit);stroke:var(--crit)}
+.obj{cursor:pointer}
+.obj:hover{filter:brightness(1.1)}
+.obj.sel{filter:drop-shadow(0 0 4px var(--accent))}
+.grade-t{font:700 11px var(--mono);fill:#fff}
+.grade-t.dark{fill:#1a1408}
+.tun{stroke:var(--ink);stroke-width:9;stroke-linecap:butt}
+.tun.closed{stroke:var(--crit)}
+.tun-l{font:800 11px var(--display);fill:var(--ink);paint-order:stroke;stroke:var(--halo);stroke-width:3px}
+.truck circle{stroke:var(--surface);stroke-width:2}
+.truck .plate{fill:var(--surface);stroke:var(--ink);stroke-width:1.2}
+.truck .plate-t{font:700 10px var(--mono);fill:var(--ink)}
+
+.info{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;gap:8px;min-width:0}
+.info h3{margin:0;font-size:16px;font-weight:800}
+.kv{display:grid;grid-template-columns:minmax(120px,max-content) 1fr;gap:4px 14px;font-size:13px}
+.kv dt{color:var(--muted)} .kv dd{margin:0;min-width:0}
+.pill{display:inline-flex;align-items:center;gap:5px;font:700 11px var(--display);letter-spacing:.03em;padding:2px 8px;border-radius:99px;background:var(--surface-2);color:var(--muted);white-space:nowrap}
+.pill i{width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block}
+.pill.ok{color:var(--ok)} .pill.warn{color:var(--warn)} .pill.crit{color:var(--crit)} .pill.acc{color:var(--accent)}
+
+/* Route planner */
+.job{font-size:13px;display:grid;gap:2px}
+.job b{font-size:15px}
+.veh{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.veh label{display:grid;gap:3px;font-size:11.5px;color:var(--muted);font-weight:600}
+.veh input{font:600 14px var(--mono);color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:6px 8px;width:100%;min-width:0}
+.vsub{font:700 11px var(--display);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:-4px}
+.seg3{display:flex;flex-wrap:wrap;gap:4px;background:var(--surface-2);border-radius:10px;padding:4px}
+.seg3 button{flex:1 1 auto;border:0;background:none;color:var(--muted);font-weight:600;font-size:12.5px;padding:7px 8px;border-radius:7px;cursor:pointer;white-space:nowrap}
+.seg3 button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.temp{display:grid;gap:4px;font-size:12px;color:var(--muted);font-weight:600}
+.temp input{width:100%;accent-color:var(--accent)}
+.temp b{font:700 14px var(--mono);color:var(--ink)}
+.en{background:var(--surface-2);border-radius:12px;padding:10px 12px;display:grid;gap:4px;font-size:12.5px}
+.en .ln{display:flex;justify-content:space-between;gap:10px}
+.en .ln span:last-child{font-family:var(--mono);white-space:nowrap}
+.en .ln.tot{border-top:1px dashed var(--line);padding-top:6px;font-weight:700}
+.bar2{height:10px;border-radius:5px;background:var(--line);overflow:hidden;position:relative;margin:2px 0}
+.bar2 i{position:absolute;left:0;top:0;bottom:0;border-radius:5px}
+.accdot{fill:color-mix(in srgb,var(--accd) 26%,transparent);stroke:var(--accd);stroke-width:1.5}
+.acc-t{font:700 9.5px var(--mono);fill:var(--ink);pointer-events:none}
+.lab{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:5px;font:800 13px var(--display)}
+.sfrow{display:flex;align-items:center;gap:6px}
+.ropt .sf .sfrow b{font:700 15px var(--mono)}
+.ana{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;align-items:start}
+@media (max-width:1180px){.ana{grid-template-columns:repeat(2,minmax(0,1fr))}#repcard{grid-column:1/-1}}
+@media (max-width:720px){.ana{grid-template-columns:minmax(0,1fr)}}
+.ladder{display:grid;gap:3px}
+.lrow{display:flex;align-items:center;gap:8px;min-width:0}
+.step{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:0 16px 0 10px;height:22px;font-size:11px;font-weight:600;clip-path:polygon(0 0,calc(100% - 10px) 0,100% 50%,calc(100% - 10px) 100%,0 100%);flex:none}
+.step b{font-size:14px;font-weight:800}
+.mark{font:800 13px var(--mono);padding:2px 8px 2px 14px;clip-path:polygon(10px 0,100% 0,100% 100%,10px 100%,0 50%);white-space:nowrap}
+.capnote{font-size:12.5px;background:var(--surface-2);border-left:3px solid var(--crit);padding:6px 10px;border-radius:0 8px 8px 0}
+.capnote.warn{border-color:var(--warn)}
+.subs{display:grid}
+.subrow{display:grid;grid-template-columns:auto minmax(0,1fr) auto 50px;gap:8px;align-items:center;padding:6px 2px;border-bottom:1px solid var(--line);cursor:pointer}
+.subrow input{accent-color:var(--accent);width:15px;height:15px;margin:0}
+.subrow .sn b{display:block;font-size:13px}
+.subrow .sn small{display:block;color:var(--muted);font-size:11px;line-height:1.3}
+.subrow .sv{font-size:12.5px;font-weight:700;white-space:nowrap}
+.subrow .sb{height:6px;background:var(--surface-2);border-radius:3px;overflow:hidden}
+.subrow .sb i{display:block;height:100%}
+.subrow.off .sn b{color:var(--muted);text-decoration:line-through}
+.gin{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.gin label,.roiin label{display:grid;gap:3px;font-size:11.5px;color:var(--muted);font-weight:600}
+.gin input,.roiin input,.selx{font:600 14px var(--mono);color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:6px 8px;width:100%;min-width:0}
+.selx{font-family:var(--display)}
+.gwrap{display:grid;grid-template-columns:minmax(0,1fr) 72px;gap:10px;align-items:end}
+.gchart{width:100%;height:auto;display:block}
+.gb{fill:color-mix(in srgb,var(--warn) 70%,transparent);cursor:pointer}
+.gb:hover{fill:var(--warn)} .gb.best{fill:var(--ok)} .gb.cur{fill:var(--accent)}
+.gt{font:600 10px var(--mono);fill:var(--muted)}
+.comp{width:72px;height:auto;display:block}
+.cc{fill:var(--surface-2);stroke:var(--line);stroke-width:1.5}
+.ch{stroke:var(--accent);stroke-width:4;stroke-linecap:round}
+.cd{fill:var(--accent)}
+.cs{fill:var(--warn);stroke:var(--surface);stroke-width:2}
+.rep{margin:0;background:var(--surface-2);border-radius:10px;padding:10px 12px;font:400 11.5px/1.5 var(--mono);white-space:pre-wrap;word-break:break-word;max-height:360px;overflow:auto;color:var(--ink)}
+.biz{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(0,.9fr);gap:16px;align-items:start}
+@media (max-width:1000px){.biz{grid-template-columns:minmax(0,1fr)}}
+.roiin{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.roiout{display:grid;gap:8px;font-size:13px}
+.limits{margin:0;padding-left:18px;display:grid;gap:6px;font-size:13px}
+.cntbox{fill:var(--surface);stroke:var(--ink);stroke-width:1.2}
+.cntbox.bad{stroke:var(--crit);stroke-width:2.5}
+.cnt-t{font:700 10.5px var(--mono);fill:var(--ink)}
+.cnt-s{font:600 9.5px var(--mono);fill:var(--muted)}
+.nl{stroke:var(--muted);stroke-dasharray:4 4;stroke-width:1}
+.cl{fill:none;stroke:var(--accent);stroke-width:2.5;stroke-linejoin:round}
+.wd{background:var(--surface-2);border-radius:12px;padding:12px;display:grid;gap:8px}
+.wdh{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px;align-items:center}
+.wdt{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;font-size:12.5px}
+.wdtime{font-size:30px;font-weight:700;line-height:1}
+.wdtime.warn{color:var(--warn)} .wdtime.crit{color:var(--crit)} .wdtime.ok{color:var(--ok)}
+.wdbar{position:relative;height:12px;background:var(--line);border-radius:6px;margin:4px 0}
+.wdbar i{position:absolute;left:0;top:0;bottom:0;border-radius:6px}
+.wdbar em{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--ink)}
+.wdbar em.w{background:var(--warn)} .wdbar em.a{background:var(--crit)}
+.esc{margin:0;padding-left:20px;display:grid;gap:3px;font-size:12.5px;color:var(--muted)}
+.esc li.on{color:var(--ink);font-weight:600}
+.views{display:inline-flex;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:3px;gap:3px}
+.views a{padding:7px 12px;border-radius:8px;font-weight:700;font-size:13px;color:var(--muted);text-decoration:none}
+.views a[aria-current="page"]{background:var(--ink);color:var(--surface)}
+.mode-driver .wrap>*:not(.top){display:none!important}
+.mode-driver .top .demo{display:none}
+.flist{display:grid;gap:2px}
+.fl{display:grid;grid-template-columns:1fr auto;gap:2px 8px;align-items:center;padding:7px 8px;border-radius:10px;cursor:pointer;text-align:left;border:0;background:none;color:var(--ink);width:100%;font:inherit}
+.fl:hover,.fl.on{background:var(--surface-2)}
+.fl b{font-family:var(--mono);font-size:13px}
+.fl small{grid-column:1/-1;color:var(--muted);font-size:11.5px}
+.inc{border:1.5px solid var(--crit);border-radius:12px;padding:12px;display:grid;gap:8px}
+.inc .demo{display:flex;flex-wrap:wrap;gap:6px}
+.rec{font-size:13px}
+.rec ol{margin:4px 0 0;padding-left:18px;display:grid;gap:3px}
+.evm .halo{fill:color-mix(in srgb,var(--crit) 25%,transparent);stroke:var(--crit)}
+@media (prefers-reduced-motion:no-preference){.evm .halo{animation:pulse 1.6s ease-out infinite;transform-box:fill-box;transform-origin:center}@keyframes pulse{from{transform:scale(.6);opacity:1}to{transform:scale(1.8);opacity:0}}}
+#drvwrap{background:var(--bg)}
+#drvwrap.full{max-width:460px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 32px}
+#drvwrap.full .dhead{display:none}
+#drvwrap:not(.full){position:fixed;top:0;left:0;bottom:0;width:min(420px,100%);z-index:40;overflow-y:auto;border-right:1px solid var(--line);box-shadow:14px 0 30px -14px rgba(0,0,0,.4);padding:calc(12px + env(safe-area-inset-top,0px)) 12px calc(12px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px))}
+.dhead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px}
+#drv{background:var(--surface);border:1px solid var(--line);border-radius:22px;overflow:hidden;display:flex;flex-direction:column;min-height:640px;position:relative}
+.dtop{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:flex-end;padding:12px 14px;border-bottom:1px solid var(--line)}
+.dplate{display:grid;gap:3px;font-size:11px;color:var(--muted);font-weight:600;flex:1 1 170px;min-width:0}
+.dbanners{display:grid;gap:6px;padding:10px 12px 0}
+.dbanners:empty{display:none}
+.dban{border-radius:12px;padding:10px 12px;font-size:13px;display:grid;gap:8px;border:1.5px solid var(--line);background:var(--surface-2)}
+.dban.warn{border-color:var(--warn)} .dban.help{border-color:var(--crit)} .dban.info{border-color:var(--accent)}
+.bx{border:0;background:none;color:var(--muted);font-size:18px;line-height:1;cursor:pointer;padding:0 4px}
+.dbody{flex:1;padding:12px;display:grid;gap:10px;align-content:start}
+.dtabs{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line);background:var(--surface)}
+.dtabs button{border:0;background:none;padding:10px 4px 12px;font:700 12px var(--display);color:var(--muted);display:grid;justify-items:center;gap:3px;cursor:pointer}
+.dtabs button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.dtabs button[aria-current="page"]{color:var(--accent)}
+.dtabs button.sos{color:var(--crit)}
+.dcard{background:var(--surface-2);border-radius:14px;padding:12px;display:grid;gap:8px;min-width:0}
+.dcard h4{margin:0;font-size:14.5px;font-weight:800}
+.dcard summary{cursor:pointer;font-size:13.5px}
+.dcard.tun{border-left:4px solid var(--warn)}
+.dcard.sosact{border:2px solid var(--crit)}
+.row2{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.row2.sb{justify-content:space-between;flex-wrap:nowrap}
+.mini{font-size:11.5px;color:var(--muted)}
+.warnline{border-left:3px solid var(--warn);padding:4px 8px;background:var(--surface-2);border-radius:0 8px 8px 0}
+.next{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line)}
+.next:last-child{border-bottom:0}
+.ic{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:var(--surface)}
+.ic svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ic.crit{color:var(--crit)} .ic.warn{color:var(--warn)} .ic.ok{color:var(--ok)} .ic.acc{color:var(--accent)}
+.next b{display:block;font-size:13.5px}
+.next small{display:block;color:var(--muted);font-size:12px;line-height:1.3}
+.next .km{font:700 14px var(--mono);white-space:nowrap}
+.rgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.rbtn{display:grid;grid-template-columns:24px minmax(0,1fr);gap:8px;align-items:center;text-align:left;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);border-radius:12px;padding:10px;font:600 13px var(--display);cursor:pointer;min-height:56px}
+.rbtn svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.rbtn[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.sosbox{justify-items:center;text-align:center;padding:20px 12px}
+.sosbtn{width:180px;height:180px;border-radius:50%;border:0;background:var(--crit);color:#fff;font:800 40px var(--display);cursor:pointer;position:relative;overflow:hidden;display:grid;place-content:center;gap:2px;box-shadow:0 0 0 10px color-mix(in srgb,var(--crit) 18%,transparent);touch-action:none;user-select:none;-webkit-user-select:none}
+.sosbtn small{font-size:13px;font-weight:700}
+.holdbar{position:absolute;left:0;bottom:0;height:8px;width:0;background:#fff}
+.sosbtn.holding .holdbar{animation:hold 2s linear forwards}
+@keyframes hold{to{width:100%}}
+.big112{font:800 44px var(--mono);color:var(--crit);text-decoration:none;line-height:1}
+.steps5{margin:0;padding-left:20px;display:grid;gap:4px;font-size:13px}
+.checks{margin:0;padding:0;list-style:none;display:grid;gap:4px;font-size:13px}
+.checks li::before{content:"✓ ";color:var(--ok);font-weight:800}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1.5px solid var(--line);background:var(--surface);color:var(--ink);border-radius:99px;padding:6px 10px;font:600 12px var(--display);cursor:pointer}
+.chip[aria-pressed="true"]{border-color:var(--crit);color:var(--crit)}
+.np{display:grid;gap:8px}
+.np label{display:grid;gap:3px;font-size:11.5px;color:var(--muted);font-weight:600}
+.dover{position:absolute;inset:0;background:color-mix(in srgb,var(--ink) 55%,transparent);display:grid;place-items:center;padding:16px;z-index:5}
+.ci{background:var(--surface);border-radius:20px;padding:20px;display:grid;gap:10px;text-align:center;max-width:340px;width:100%}
+.ci h3{margin:0;font-size:22px}
+.ci p{margin:0}
+.cdn{font-size:54px;font-weight:700;color:var(--crit);line-height:1}
+.ciok,.cihelp{border:0;border-radius:14px;padding:16px;font:800 18px var(--display);cursor:pointer;color:#fff}
+.ciok{background:var(--ok)} .cihelp{background:var(--crit)}
+.dmap{width:100%;height:auto;display:block;border-radius:12px;border:1px solid var(--line)}
+.dm-road{fill:none;stroke:var(--casing);stroke-linecap:round;stroke-linejoin:round}
+.dm-route{fill:none;stroke:var(--accent);stroke-linecap:round;stroke-linejoin:round;opacity:.85}
+.dm-t{font:700 5px var(--display);fill:var(--ink);paint-order:stroke;stroke:var(--halo);stroke-width:1.2px;stroke-linejoin:round}
+.dcard.drive{border:2px solid var(--accent)}
+.bignext{display:grid;grid-template-columns:48px minmax(0,1fr);gap:12px;align-items:center}
+.bignext .ic{width:48px;height:48px;border-radius:14px}
+.bignext .ic svg{width:28px;height:28px}
+.bignext b{font-size:18px;display:block;line-height:1.2}
+.bkm{font-size:28px;font-weight:700;line-height:1}
+.dmapw{position:relative}
+.dmap.zoomable{touch-action:none;cursor:grab}
+.dmap.zoomable:active{cursor:grabbing}
+.poi{cursor:pointer}
+.mapctl{position:absolute;top:8px;right:8px;display:grid;gap:4px}
+.mapctl button{width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:800 18px var(--display);cursor:pointer;box-shadow:0 2px 6px -2px rgba(0,0,0,.3)}
+.mapzoom{position:absolute;left:8px;bottom:8px;font-size:11px;background:var(--surface);border-radius:6px;padding:1px 6px;color:var(--muted)}
+.poidet{background:var(--surface);border-radius:12px;padding:10px;display:grid;gap:6px;border:1.5px solid var(--accent)}
+.chip.f[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
+.chip.f[aria-pressed="false"]{color:var(--muted)}
+.poirow{width:100%;border:0;background:none;text-align:left;color:var(--ink);font:inherit;cursor:pointer}
+.sfbar{width:64px;height:5px;border-radius:3px;background:var(--line);overflow:hidden}
+.sfbar i{display:block;height:100%}
+.routes{display:grid;gap:8px}
+.ropt{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:4px 10px;align-items:center;text-align:left;width:100%;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);border-radius:12px;padding:10px;cursor:pointer}
+.ropt:hover{border-color:var(--accent)}
+.ropt.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.ropt .L{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-weight:800;background:var(--surface-2);grid-row:span 2}
+.ropt.on .L{background:var(--accent);color:var(--accent-ink)}
+.ropt .n{font-weight:700;font-size:13.5px;line-height:1.2}
+.ropt .m{font:400 12px var(--mono);color:var(--muted);grid-column:2}
+.ropt .sf{grid-row:1/3;grid-column:3;text-align:right;display:grid;gap:2px;justify-items:end}
+.ropt .sf b{font:700 18px var(--mono)}
+.ropt .tags{grid-column:2/4;display:flex;flex-wrap:wrap;gap:4px}
+.save{background:var(--surface-2);border-radius:12px;padding:10px 12px;display:grid;gap:6px}
+.save .h{font-size:12px;color:var(--muted);font-weight:600}
+.save .row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.save .row div{display:grid}
+.save .row b{font:700 15px var(--mono)}
+.save .row span{font-size:11px;color:var(--muted)}
+details{border-top:1px solid var(--line);padding-top:10px}
+summary{cursor:pointer;font-weight:700;font-size:13px}
+.ktab{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+.ktab th,.ktab td{padding:5px 4px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+.ktab th:first-child,.ktab td:first-child{text-align:left;white-space:normal}
+.ktab th{font-weight:600;color:var(--muted);font-size:11px}
+.ktab td{font-family:var(--mono)}
+.ktab td:first-child{font-family:var(--display)}
+.tscroll{overflow-x:auto}
+.formula{font:400 11.5px var(--mono);color:var(--muted);margin-top:6px}
+
+/* Alerts */
+.alerts{display:grid;gap:6px;max-height:420px;overflow-y:auto}
+.al{display:grid;grid-template-columns:4px 1fr;gap:10px;text-align:left;border:0;background:var(--surface-2);color:var(--ink);border-radius:10px;padding:8px 10px 8px 0;cursor:pointer;font-size:13px;width:100%}
+.al .s{border-radius:4px;background:var(--muted)}
+.al.crit .s{background:var(--crit)} .al.warn .s{background:var(--warn)} .al.info .s{background:var(--accent)} .al.ok .s{background:var(--ok)}
+.al small{display:block;color:var(--muted);font-size:11px;font-family:var(--mono)}
+.sect{font:700 11px var(--display);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:4px}
+
+/* Tunnel monitor */
+.mon{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+@media (max-width:900px){.mon{grid-template-columns:minmax(0,1fr)}}
+.mhead{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:flex-start}
+.mhead h3{margin:0;font-size:16px;font-weight:800}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+@media (max-width:480px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kpi{background:var(--surface-2);border-radius:10px;padding:8px 10px;display:grid}
+.kpi span{font-size:11px;color:var(--muted)}
+.kpi b{font:700 18px var(--mono)}
+.kpi b.crit{color:var(--crit)} .kpi b.warn{color:var(--warn)}
+canvas{width:100%;height:150px;display:block}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:11.5px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px}
+.tube{position:relative;height:64px;background:var(--surface-2);border-radius:32px 6px 6px 32px;border:1px solid var(--line);margin:18px 6px 6px}
+.tube .face{position:absolute;right:-1px;top:-1px;bottom:-1px;width:10px;border-radius:0 6px 6px 0;background:repeating-linear-gradient(45deg,var(--muted) 0 3px,transparent 3px 6px)}
+.anchor{position:absolute;top:-14px;width:2px;height:10px;background:var(--accent)}
+.anchor span{position:absolute;top:-14px;left:50%;transform:translateX(-50%);font:600 9.5px var(--mono);color:var(--muted);white-space:nowrap}
+.wk{position:absolute;top:50%;transform:translate(-50%,-50%);display:grid;justify-items:center}
+.wk .dot{width:14px;height:14px;border-radius:50%;background:var(--warn);border:2px solid var(--surface)}
+.wk .unc{position:absolute;height:4px;top:50%;transform:translateY(-50%);background:color-mix(in srgb,var(--warn) 35%,transparent);border-radius:2px}
+.wk .tag{position:absolute;top:16px;font:700 10px var(--mono);white-space:nowrap}
+.raw{position:absolute;top:50%;width:2px;height:22px;transform:translate(-50%,-50%);background:var(--muted);opacity:.45}
+.wtab{width:100%;border-collapse:collapse;font-size:12.5px}
+.wtab th,.wtab td{padding:5px 6px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+.wtab th{color:var(--muted);font-weight:600;font-size:11px}
+.wtab td.n{font-family:var(--mono);text-align:right}
+
+/* Canvas section */
+.cv{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:16px}
+@media (max-width:900px){.cv{grid-template-columns:minmax(0,1fr)}}
+.blocks{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.blk{background:var(--surface-2);border-radius:12px;padding:10px 12px;display:grid;gap:6px;align-content:start}
+.blk .k{font:700 10.5px var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.blk ul{margin:0;padding-left:16px;display:grid;gap:3px;font-size:13px}
+.blk li span{color:var(--muted)}
+.blk.open{background:transparent;border:1.5px dashed var(--line)}
+.src{display:grid;gap:8px}
+.src div{display:grid;gap:1px;font-size:13px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.src div:last-child{border-bottom:0}
+.src small{color:var(--muted)}
+.src a{color:var(--accent)}
+.foot{font-size:12px;color:var(--muted)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:10px;font-weight:600;font-size:13px;z-index:20;max-width:calc(100% - 32px)}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="12" fill="var(--accent)"/><path d="M6 24c5-8 11-12 18-12s13 4 18 12c-5 8-11 12-18 12S11 32 6 24z" fill="none" stroke="var(--accent-ink)" stroke-width="3"/><circle cx="24" cy="24" r="6.5" fill="var(--accent-ink)"/><path d="M14 33l-4 6M34 33l4 6M24 36v6" stroke="var(--accent-ink)" stroke-width="2.5" stroke-linecap="round"/></svg>
+      <div><h1>ArgusVisio</h1><div class="sub">Infrastruktur-Lagebild für LKW-Routen · Demo-Region Oberbayern Süd</div></div>
+    </div>
+    <nav class="views" aria-label="Ansicht"><a href="#flotte" id="v-fleet">Flottenzentrale</a><a href="#fahrer" id="v-driver">Fahrer-App</a></nav>
+    <span id="conn"></span>
+    <div class="demo">
+      <span class="lbl">Demo</span>
+      <button class="btn primary" id="d-drawer" type="button">Fahrer-App daneben</button>
+      <button class="btn danger" id="d-alarm" type="button">Tunnel-Alarm T1 auslösen</button>
+      <button class="btn" id="d-stuck" type="button">LKW bleibt im Tunnel</button>
+      <button class="btn" id="d-panne" type="button">Fremde Panne im Tunnel</button>
+      <button class="btn" id="d-reset" type="button">Zurücksetzen</button>
+    </div>
+  </header>
+
+  <div class="app">
+    <aside class="panel layers" aria-label="Kartenebenen">
+      <h2>Flotte</h2>
+      <div id="fleetlist" class="flist"></div>
+      <h2>Datenquellen</h2>
+      <div id="layers"></div>
+    </aside>
+
+    <div class="mapcol">
+      <div class="mapbox">
+        <div class="maphead"><span><b>Lagekarte</b> · Objekt antippen für Details</span><span id="clock" class="mono"></span></div>
+        <svg id="map" viewBox="0 0 1000 720" role="img" aria-label="Karte der Demo-Region mit Routen, Brücken, Engstellen, Tunneln, Drohnen-Geozonen und LKW-Positionen"></svg>
+      </div>
+      <div class="info" id="info"></div>
+    </div>
+
+    <div class="side">
+      <section class="panel" id="incidents" aria-label="Notfälle"></section>
+      <section class="panel" aria-label="Fahrzeugprofil">
+        <h2>Fahrzeugprofil · M-AV 482</h2>
+        <div class="seg3" id="presets"></div>
+        <div id="vform"></div>
+        <label class="temp" for="v-temp">Außentemperatur <b id="o-temp"></b><input id="v-temp" type="range" min="-20" max="40" step="1"></label>
+        <label class="temp" for="v-wx">Wetterwarnung (DWD, Demo)<select id="v-wx" class="selx"><option value="none">keine Warnung</option><option value="glatt">Glätte</option><option value="nebel">Nebel</option><option value="sturm">Sturmböen</option></select></label>
+        <div class="en" id="energy"></div>
+      </section>
+      <section class="panel" aria-label="Routenplanung">
+        <h2>Route Re-Planning</h2>
+        <div class="job"><span class="muted">Auftrag · LKW <span class="mono">M-AV 482</span></span><b>Hub München Nord → Baustelle Garmisch-Partenkirchen</b><span class="muted">Ladung: Bewehrungsstahl für den Tunnelbau</span></div>
+        <div class="routes" id="routes"></div>
+        <p class="muted" style="margin:0;font-size:11.5px">Sicherheitsscore in % mit Label A (sehr sicher) bis E. Er ist eine Bewertung, keine Unfallwahrscheinlichkeit. Details unter „Bewertung“.</p>
+        <button class="btn primary" id="replan" type="button">Route neu planen</button>
+        <div class="save" id="save"></div>
+      </section>
+      <section class="panel" aria-label="Warnbenachrichtigungen">
+        <h2>Warnbenachrichtigungen</h2>
+        <div class="alerts" id="alerts"></div>
+      </section>
+    </div>
+  </div>
+
+  <section class="ana" aria-label="Analyse der zugewiesenen Route">
+    <div class="panel" id="score"></div>
+    <div class="panel" id="glare"></div>
+    <div class="panel" id="repcard">
+      <div class="mhead"><h3>Streckenbericht</h3><span class="pill acc"><i></i>Sorgfaltsnachweis</span></div>
+      <p class="muted" style="margin:0;font-size:12.5px">Für Kunde und Versicherer: Warum wurde diese Route gewählt? Mit Teilwerten, kritischen Stellen, Quellen und Abrufzeitpunkt.</p>
+      <pre class="rep" id="rep-text"></pre>
+      <button class="btn primary" id="rep-copy" type="button">Bericht kopieren</button>
+    </div>
+  </section>
+
+  <section class="mon" aria-label="Tunnel-Monitor">
+    <div class="panel" id="t1card"></div>
+    <div class="panel" id="t2card"></div>
+  </section>
+
+  <section class="cv">
+    <div class="panel">
+      <h2>Vom Canvas zum Prototyp</h2>
+      <div class="blocks" id="blocks"></div>
+    </div>
+    <div class="panel">
+      <h2>Geplante Datenanbindung</h2>
+      <div class="src" id="sources"></div>
+    </div>
+  </section>
+  <section class="biz" aria-label="Geschäftsmodell und Stand">
+    <div class="panel" id="roi"></div>
+    <div class="panel"><h2>Stand der Funktionen</h2><div class="tscroll"><table class="wtab" id="status"></table></div></div>
+    <div class="panel"><h2>Grenzen des Prototyps</h2><ul class="limits" id="limits"></ul></div>
+  </section>
+  <p class="foot">Ideen für Label A–E, schwächstes Glied, Konfidenz, Gegenlicht-Planer, Streckenbericht und Preismodell stammen aus dem ARGUS-Prototyp des Lehrstuhls. Der Score ist eine Einordnung auf Basis der genannten Daten. Er sichert keine Gefahrlosigkeit zu. Prototyp mit Demo-Daten. Alle Bauwerks-IDs, Zustandsnoten, Sensorwerte, Fahrzeuge und Geometrien sind erfunden und dienen nur der Veranschaulichung. Ortsnamen dienen der Orientierung. Kosten: Diesel 1,65 €/l, Strom 0,45 €/kWh, Fahrer 42 €/h, Maut &amp; Verschleiß 0,45 €/km. CO₂: 2,65 kg/l Diesel, 0,38 kg/kWh Strom. Die Verbrauchsfaktoren für Beladung, Temperatur und Steigung sind Annahmen.</p>
+</div>
+<div id="drvwrap" hidden><div class="dhead"><b>Fahrer-App · Demo daneben</b><button class="btn" id="drv-close" type="button">Schließen</button></div><div id="drv"></div></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const $=id=>document.getElementById(id);
+const fmt=(n,d=0)=>n.toLocaleString("de-DE",{minimumFractionDigits:d,maximumFractionDigits:d});
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function gauss(){let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
+const now=()=>new Date().toLocaleTimeString("de-DE");
+function toast(m){const t=$("toast");t.textContent=m;t.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>t.hidden=true,2600)}
+const REDUCED=matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ---------- Geometrie ---------- */
+const P={M:[760,80],P1:[690,150],P2:[650,250],X1:[640,360],A1:[690,450],A2:[620,560],A3:[520,630],G:[440,665],
+ P3:[585,460],J1:[520,530],P4:[495,585],T1a:[484,603],T1b:[463,638],
+ C1:[600,150],C2:[500,200],C3:[430,300],W:[360,400],C4:[420,480],Mu:[490,522],F1:[510,598],F2:[486,648],
+ WR:[715,300],BT:[770,440]};
+const on=(a,b,t)=>{a=P[a]||a;b=P[b]||b;return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]};
+const d=pts=>"M"+pts.map(p=>p.map(v=>v.toFixed(1)).join(" ")).join(" L");
+const ROUTES={
+ A:{name:"Standard-Navi (kürzeste Strecke)",path:["M","P1","P2","X1","A1","A2","A3","G"],km:84,min:71,traffic:.25,terrain:1.06,via:"A95, Staatsstraße"},
+ B:{name:"A95 + Tunnel T1",path:["M","P1","P2","X1","P3","J1","P4","T1a","T1b","G"],km:89,min:68,traffic:.35,terrain:1.03,via:"A95, B2"},
+ C:{name:"Über Weilheim, Ortsdurchfahrt",path:["M","P1","C1","C2","C3","W","C4","Mu","F1","F2","G"],km:101,min:88,traffic:.3,terrain:1.05,via:"Staatsstraße, B2"}
+};
+const pts=r=>ROUTES[r].path.map(k=>P[k]);
+
+const GRADE=[[1.4,"sehr gut"],[1.9,"gut"],[2.4,"befriedigend"],[2.9,"ausreichend"],[3.4,"nicht ausreichend"],[4,"ungenügend"]];
+const gradeTxt=n=>GRADE.find(g=>n<=g[0])[1];
+const gradeLvl=n=>n<2?"ok":n<3?"warn":"crit";
+
+const BR=[
+ {id:"B1",name:"BW 8033-512",at:on("P2","X1",.5),note:1.8,year:2024,limit:null,type:"Stahlbeton-Plattenbalken, Baujahr 1984",routes:["A","B"],zone:"Z1"},
+ {id:"B2",name:"BW 8333-617",at:on("A2","A3",.5),note:3.2,year:2023,limit:30,type:"Spannbeton, Baujahr 1971, über die Loisach",routes:["A"],zone:null},
+ {id:"B3",name:"BW 8132-208",at:on("W","C4",.5),note:2.6,year:2022,limit:null,type:"Stahlverbund, Baujahr 1993",routes:["C"],zone:"Z4"},
+ {id:"B4",name:"BW 8134-077",at:on("WR","BT",.3),note:3.6,year:2025,limit:16,type:"Spannbeton, Baujahr 1968, Ersatzneubau geplant",routes:[],zone:null},
+ {id:"B5",name:"BW 7934-140",at:on("P1","C1",.5),note:1.4,year:2021,limit:null,type:"Stahlbeton, Baujahr 2009",routes:["C"],zone:null},
+ {id:"B6",name:"BW 8233-331",at:on("P3","J1",.5),note:2.2,year:2024,limit:null,type:"Spannbeton-Hohlkasten, Baujahr 1979",routes:["B"],zone:"Z1"}
+];
+const HZ=[
+ {id:"H1",kind:"height",name:"Bahnunterführung",at:on("X1","A1",.8),clear:3.80,route:"A",txt:"Lichte Durchfahrtshöhe 3,80 m (Zeichen 265)."},
+ {id:"H2",kind:"crest",name:"Kuppe",at:on("A1","A2",.45),route:"A",w:.35,txt:"Kuppe mit 11 % Längsneigung, Sichtweite 80 m. Aufsetzgefahr für Tieflader."},
+ {id:"H3",kind:"narrow",name:"Enge Ortsdurchfahrt",at:on("F1","F2",.5),route:"C",w:.3,minW:5.2,txt:"Fahrbahnbreite 5,20 m. LKW-Begegnungsverkehr nur mit Anhalten."},
+ {id:"H4",kind:"crest",name:"Kuppe",at:on("C2","C3",.5),route:"C",w:.2,txt:"Kuppe, Sichtweite 120 m."}
+];
+const ZONES={
+ Z1:{name:"Geozone A95 (Bundesautobahn)",rule:"100 m beidseits von Bundesfernstraßen: Drohnenflug nur mit Genehmigung."},
+ Z2:{name:"Flugplatz Oberpfaffenhofen (EDMO)",rule:"Kontrollzone um einen Flugplatz: Drohnenflug ohne Freigabe verboten."},
+ Z3:{name:"Naturschutzgebiet Murnauer Moos",rule:"Naturschutzgebiet: Drohnenflug grundsätzlich verboten."},
+ Z4:{name:"Geozone B2 (Bundesstraße)",rule:"100 m beidseits von Bundesfernstraßen: Drohnenflug nur mit Genehmigung."}
+};
+
+/* ---------- Zustand ---------- */
+const ACC=[
+ {id:"U1",at:on("P1","P2",.45),n:14,routes:["A","B"],txt:"Anschlussstelle, vor allem Auffahrunfälle am Stauende"},
+ {id:"U2",at:on("X1","A1",.35),n:9,routes:["A"],txt:"Einmündung mit schlechter Sicht"},
+ {id:"U3",at:on("A2","A3",.75),n:11,routes:["A"],txt:"Enge Kurve nach der Loisachbrücke"},
+ {id:"U4",at:on("P3","J1",.25),n:8,routes:["B"],txt:"Gefälle, Unfälle bei Nässe"},
+ {id:"U5",at:on("C3","W",.5),n:7,routes:["C"],txt:"Überholunfälle auf der Staatsstraße"},
+ {id:"U6",at:on("Mu","F1",.6),n:12,routes:["C"],txt:"Ortsdurchfahrt, Abbiegeunfälle"}
+];
+const ACC_TOTAL={A:46,B:52,C:44}; // Unfälle mit Personenschaden und LKW-Beteiligung in 3 Jahren (Demo)
+const WORKS=[
+ {id:"W1",at:on("P2","X1",.22),routes:["A","B"],delay:6,maxW:2.0,name:"Baustelle A95",txt:"Fahrbahnerneuerung, zwei verengte Fahrstreifen. Linker Streifen nur für Fahrzeuge bis 2,00 m Breite."},
+ {id:"W2",at:on("C3","W",.25),routes:["C"],delay:8,name:"Baustelle Staatsstraße",txt:"Einspurige Verkehrsführung mit Ampel."}
+];
+const PRESETS={
+ semi:{name:"Sattelzug Diesel",h:4.00,b:2.55,l:16.5,leer:15,lad:23,zgg:40,drive:"diesel",cap:600,lvl:180,use:32},
+ ev:{name:"E-LKW",h:4.00,b:2.55,l:16.5,leer:18,lad:20,zgg:40,drive:"ev",cap:540,lvl:40,use:120},
+ van:{name:"Transporter 3,5 t",h:2.70,b:2.05,l:6.0,leer:2.2,lad:1.1,zgg:3.5,drive:"diesel",cap:75,lvl:50,use:11}
+};
+const pad2=n=>String(n).padStart(2,"0");
+const TODAY=(()=>{const d=new Date();return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`})();
+const S={assigned:"A",preset:"semi",veh:{...PRESETS.semi,temp:4,w:38},sel:null,dep:{date:TODAY,time:"12:30"},wx:"none",use:{},kopen:false,
+ roi:{n:20,cases:2,km:26,ckm:1.9},
+ layers:{base:1,drone:1,tunnel:1,persons:1,trucks:1,bridges:1,hazards:1,acc:1,works:1,rast:1},
+ t1:{closed:false,alarm:false,coTrue:24,co:{x:24,P:20},vis:{x:.0025,P:1e-7},visTrue:.0025,temp:14.2,air:2.1,hist:[]},
+ workers:[],log:[]};
+
+const LAYERS=[
+ ["base","BayernAtlas","Basiskarte, Gewässer, Orte","var(--water)"],
+ ["bridges","Zustandsnoten der Brücken","BASt-Brückenstatistik (DIN 1076)","var(--ok)"],
+ ["hazards","Kuppen, enge Wege, Durchfahrtshöhen","Engstellen für LKW","var(--crit)"],
+ ["acc","Unfallatlas","Unfälle mit LKW-Beteiligung, 3 Jahre","var(--accd)"],
+ ["works","Baustellen","Autobahn GmbH, live","var(--warn)"],
+ ["rast","Rastplätze & Notrufsäulen","LKW-Stellplätze; Notrufsäulen alle 2 km an der A95","#1f5fbf"],
+ ["drone","Flugverbot für Drohnen","Geozonen (DIPUL)","var(--drone)"],
+ ["tunnel","Tunnelsensoren","CO, Sichttrübe, Temperatur, Luftstrom","var(--ink)"],
+ ["persons","Fahrzeugzählung im Tunnel","Zählstellen an den Portalen, Durchfahrtswächter","var(--warn)"],
+ ["trucks","LKW-Ortung","Telematik der Logistikpartner","var(--accent)"]
+];
+const SRC=[
+ {id:"bridge",n:"Brückenzustand",R:.004,key:1,q:"BASt"},
+ {id:"height",n:"Durchfahrtshöhe",R:.003,key:1,q:"BAYSIS / OSM"},
+ {id:"geom",n:"Streckengeometrie",R:.012,key:1,q:"Engstellen-Kataster"},
+ {id:"acc",n:"Unfalldichte",R:.01,q:"Unfallatlas"},
+ {id:"works",n:"Baustellen",R:.015,q:"Autobahn-API"},
+ {id:"wx",n:"Wetter",R:.02,q:"DWD"},
+ {id:"glare",n:"Gegenlicht",R:.015,q:"Sonnenstand"},
+ {id:"energy",n:"Energie & Reichweite",R:.008,q:"Fahrzeugprofil"},
+ {id:"tunnel",n:"Tunnelsensoren",R:.02,q:"Tunnelleitzentrale"},
+ {id:"traffic",n:"Verkehr",R:.03,q:"LKW-Ortung"}
+];
+SRC.forEach(s=>S.use[s.id]=true);
+
+/* ---------- Bewertung & Kalman ---------- */
+// Sonnenstand (vereinfachte astronomische Formeln, Genauigkeit ca. 1°)
+const LAT=47.7,LON=11.2,RAD=Math.PI/180;
+function lastSun(y,m){const d=new Date(Date.UTC(y,m+1,0));return d.getUTCDate()-d.getUTCDay()}
+function berlinUTC(ds,ts){const [y,mo,da]=ds.split("-").map(Number),[h,mi]=ts.split(":").map(Number);
+  const base=Date.UTC(y,mo-1,da,h,mi),a=Date.UTC(y,2,lastSun(y,2),1),b=Date.UTC(y,9,lastSun(y,9),1);
+  const w=base-3600000;return (w>=a&&w<b)?base-7200000:w}
+function sun(ms){const d=ms/86400000-10957.5;
+  const g=(357.529+.98560028*d)*RAD,q=280.459+.98564736*d,L=(q+1.915*Math.sin(g)+.02*Math.sin(2*g))*RAD,e=(23.439-3.6e-7*d)*RAD;
+  const ra=Math.atan2(Math.cos(e)*Math.sin(L),Math.cos(L)),dec=Math.asin(Math.sin(e)*Math.sin(L));
+  const gmst=((18.697374558+24.06570982441908*d)%24+24)%24,H=(gmst*15+LON)*RAD-ra,la=LAT*RAD;
+  const el=Math.asin(Math.sin(la)*Math.sin(dec)+Math.cos(la)*Math.cos(dec)*Math.cos(H));
+  const az=(Math.atan2(Math.sin(H),Math.cos(H)*Math.sin(la)-Math.tan(dec)*Math.cos(la))/RAD+540)%360;
+  return {el:el/RAD,az}}
+function addMin(t,m){const [h,mi]=t.split(":").map(Number);const x=((h*60+mi+m)%1440+1440)%1440;return pad2(Math.floor(x/60))+":"+pad2(x%60)}
+const tmin=t=>{const [h,m]=t.split(":").map(Number);return h*60+m};
+const glareCache={};
+function glare(r,ds,ts){
+  const key=r+ds+ts;if(glareCache[key])return glareCache[key];
+  const p=pts(r),segs=[];let tot=0;
+  for(let i=0;i<p.length-1;i++){const dx=p[i+1][0]-p[i][0],dy=p[i+1][1]-p[i][1],l=Math.hypot(dx,dy);segs.push({l,h:(Math.atan2(dx,-dy)/RAD+360)%360,tun:r==="B"&&i===7});tot+=l}
+  const T=ROUTES[r].min,t0=berlinUTC(ds,ts);let min=0,worst=null,first=null,last=null;
+  for(let m=0;m<T;m++){const s=(m+.5)/T*tot;let a=0,seg=segs[segs.length-1];for(const g of segs){if(s<=a+g.l){seg=g;break}a+=g.l}
+    if(seg.tun)continue;
+    const sp=sun(t0+m*60000),diff=Math.abs(((sp.az-seg.h+540)%360)-180);
+    if(sp.el>0&&sp.el<25&&diff<=30){min++;if(first===null)first=m;last=m;if(!worst||sp.el<worst.el)worst={m,el:sp.el,az:sp.az,h:seg.h}}}
+  return glareCache[key]={min,first,last,worst};
+}
+function planner(r){const out=[];for(let h=5;h<20;h++)for(let q=0;q<60;q+=15){const t=pad2(h)+":"+pad2(q);out.push({t,min:glare(r,S.dep.date,t).min})}return out}
+
+const PRICE={diesel:1.65,ev:.45},CO2F={diesel:2.65,ev:.38};
+function energy(r,km){
+  const v=S.veh,R=ROUTES[r],ev=v.drive==="ev",T=v.temp;km=km??R.km;
+  const fLoad=.7+.3*clamp(v.w/v.zgg,0,1.2);
+  const fT=ev?(T<20?1+Math.min(.45,(20-T)*.015):T>25?1+(T-25)*.01:1):(T<15?1+Math.min(.08,(15-T)*.004):T>25?1+(T-25)*.005:1);
+  const fR=R.terrain,per=v.use*fLoad*fT*fR,need=km*per/100;
+  const reserve=ev?v.cap*.15:v.cap*.1,have=ev?v.cap*v.lvl/100:v.lvl,avail=Math.max(0,have-reserve);
+  const ratio=need/Math.max(avail,.001),stop=ratio>1;
+  const stopMin=!stop?0:ev?Math.max(25,Math.ceil((need-avail+v.cap*.1)/300*60)+10):15;
+  return {ev,unit:ev?"kWh":"l",per,need,have,reserve,avail,ratio,stop,stopMin,fLoad,fT,fR,km,eur:need*PRICE[v.drive],co2:need*CO2F[v.drive]};
+}
+function worksDelay(r){return S.use.works?WORKS.filter(w=>w.routes.includes(r)).reduce((a,w)=>a+w.delay,0):0}
+function trip(r,km,min){const e=energy(r,km);min=(min??ROUTES[r].min+worksDelay(r))+e.stopMin;return {...e,min,total:e.eur+e.km*.45+min/60*42}}
+
+const LABELS=[["A",85],["B",70],["C",55],["D",40],["E",0]];
+const labelOf=s=>LABELS.find(l=>s>=l[1])[0];
+function evalRoute(r){
+  const v=S.veh,u=S.use,blocks=[],warns=[],sub={},caps=[];
+  const add=(id,z,detail)=>sub[id]={z:clamp(z,0,1),detail};
+  if(v.w>v.zgg+1e-9)blocks.push({obj:null,t:`Fahrzeug überladen: ${fmt(v.w,1)} t bei zulässigem Gesamtgewicht ${fmt(v.zgg,1)} t`});
+  // Brücken (mit schwächstem Glied)
+  const brs=BR.filter(b=>b.routes.includes(r));
+  {let z=Math.max(0,...brs.map(b=>(b.note-1)/3));const worst=brs.reduce((a,b)=>!a||b.note>a.note?b:a,null);
+   if(u.bridge){brs.forEach(b=>{if(b.limit&&v.w>b.limit){blocks.push({obj:b.id,t:`${b.name}: Lastbeschränkung ${b.limit} t, Fahrzeug ${fmt(v.w,1)} t`});z=1}
+       else if(b.note>=3)warns.push({obj:b.id,t:`${b.name}: Zustandsnote ${fmt(b.note,1)} (${gradeTxt(b.note)})`})});
+     if(worst&&worst.note>=3.5)caps.push({v:39,t:`Brücke ${worst.name} mit Note ${fmt(worst.note,1)}`,obj:worst.id});
+     else if(worst&&worst.note>=3)caps.push({v:54,t:`Brücke ${worst.name} mit Note ${fmt(worst.note,1)}`,obj:worst.id})}
+   add("bridge",z,`${brs.length} Brücke${brs.length===1?"":"n"}, schlechteste Note ${worst?fmt(worst.note,1):"–"}`)}
+  // Durchfahrtshöhe
+  const hz=HZ.filter(h=>h.route===r);
+  {let minClear=r==="B"?4.5:9;hz.filter(h=>h.kind==="height").forEach(h=>minClear=Math.min(minClear,h.clear));
+   const margin=minClear-v.h,z=minClear>=9?.03:margin<0?1:clamp(.6*(1-margin/.8),.02,.6);
+   if(u.height&&margin<0){const h=hz.find(x=>x.kind==="height");blocks.push({obj:h?h.id:"T1",t:`${h?h.name:"Tunnel T1"}: lichte Höhe ${fmt(minClear,2)} m, Fahrzeug ${fmt(v.h,2)} m`})}
+   add("height",z,minClear>=9?"keine Höhenbeschränkung":`niedrigste Stelle ${fmt(minClear,2)} m, ${margin<0?"zu niedrig":fmt(margin,2)+" m Luft"}`)}
+  // Streckengeometrie
+  {let z=.05;const hw=hz.filter(h=>h.w);hw.forEach(h=>{z+=h.w;if(u.geom)warns.push({obj:h.id,t:`${h.name}: ${h.txt}`})});
+   const nr=hz.find(h=>h.kind==="narrow");if(nr&&v.b>2.55){z+=.2;if(u.geom)warns.push({obj:nr.id,t:`Fahrzeug ${fmt(v.b,2)} m breit, Engstelle beachten`})}
+   if(v.l>12&&hw.length){z+=.1;if(u.geom)warns.push({obj:hw[0].id,t:`Fahrzeuglänge ${fmt(v.l,1)} m: Kuppen und Engstellen sind kritischer (Aufsetzen, Rangieren)`})}
+   add("geom",z,hw.length?hw.map(h=>h.name).join(", "):"keine Engstellen")}
+  // Unfalldichte
+  {const n=ACC_TOTAL[r],dens=n/ROUTES[r].km*10,hs=ACC.filter(a=>a.routes.includes(r)).sort((a,b)=>b.n-a.n);
+   if(u.acc&&hs[0]&&hs[0].n>=10)warns.push({obj:hs[0].id,t:`Unfallschwerpunkt: ${hs[0].n} Unfälle in 3 Jahren (${hs[0].txt})`});
+   add("acc",dens/14,`${n} Unfälle in 3 J., ${fmt(dens,1)} je 10 km`)}
+  // Baustellen
+  {const ws=WORKS.filter(w=>w.routes.includes(r));let z=.05+.13*ws.length;
+   ws.forEach(w=>{if(w.maxW&&v.b>w.maxW){z+=.05;if(u.works)warns.push({obj:w.id,t:`${w.name}: linker Fahrstreifen nur bis ${fmt(w.maxW,2)} m. Fahrzeug ${fmt(v.b,2)} m breit, rechts bleiben (+${w.delay} min)`})}
+     else if(u.works)warns.push({obj:w.id,t:`${w.name}: ${w.txt} (+${w.delay} min)`})});
+   add("works",z,ws.length?`${ws.length} aktiv, +${ws.reduce((a,w)=>a+w.delay,0)} min`:"keine aktiv")}
+  // Wetter (DWD) und Glätte
+  {let z=.05;const parts=[],wx=S.wx,icy=v.temp<=3&&(brs.length||hz.some(h=>h.kind==="crest"));
+   const objB=brs.length?brs.reduce((a,b)=>b.note>a.note?b:a).id:null;
+   if(wx==="glatt"){z+=.55;parts.push("DWD: Glätte");if(u.wx)warns.push({obj:objB,t:"DWD-Warnung Glätte: Brücken und Kuppen werden zuerst glatt"})}
+   if(wx==="nebel"){z+=.4;parts.push("DWD: Nebel");if(u.wx)warns.push({obj:null,t:"DWD-Warnung Nebel: Sichtweite unter 150 m"})}
+   if(wx==="sturm"){z+=.3;parts.push("DWD: Sturmböen");if(u.wx)warns.push({obj:objB,t:"DWD-Warnung Sturmböen: Seitenwind auf Brücken"});
+     if(brs.length&&v.lad/Math.max(.1,v.zgg-v.leer)<.3){z+=.2;if(u.wx)warns.push({obj:objB,t:"Fahrzeug fast leer: Kippgefahr bei Seitenwind auf Brücken"})}}
+   if(icy&&wx!=="glatt"){z+=.12;parts.push(`${fmt(v.temp)} °C, Brücken frieren zuerst`);if(u.wx)warns.push({obj:objB,t:`Glättegefahr bei ${fmt(v.temp)} °C: Brücken und Kuppen frieren zuerst`})}
+   add("wx",z,parts.length?parts.join(", "):"keine Warnung")}
+  // Gegenlicht
+  {const g=glare(r,S.dep.date,S.dep.time);
+   if(u.glare&&g.min>=3)warns.push({obj:null,t:`Gegenlicht: ${g.min} min tief stehende Sonne in Fahrtrichtung, ab ${addMin(S.dep.time,g.first)} Uhr`});
+   add("glare",.02+clamp(g.min/20,0,1)*.78,g.min?`${g.min} min Sonne unter 25° in Fahrtrichtung`:"kein Gegenlicht")}
+  // Energie
+  {const en=energy(r),z=en.ratio<=.7?.05:en.ratio<=1?.05+(en.ratio-.7)/.3*.4:.5;
+   if(u.energy){if(en.stop)warns.push({obj:null,t:`${en.ev?"Ladestopp":"Tankstopp"} nötig: ${fmt(en.need)} ${en.unit} benötigt, nur ${fmt(en.avail)} ${en.unit} nutzbar (+${en.stopMin} min)`});
+     else if(en.ratio>.85)warns.push({obj:null,t:`Knappe Reichweite: Die Fahrt braucht ${fmt(en.ratio*100)} % der nutzbaren Energie`})}
+   add("energy",z,`${fmt(en.need)} von ${fmt(en.avail)} ${en.unit} nutzbar`)}
+  // Tunnel
+  {let z=.05,d="kein Tunnel";
+   if(r==="B"){z=clamp(S.t1.co.x/120,0,1);d=`T1: CO ${fmt(S.t1.co.x)} ppm`;
+     if(S.t1.closed){blocks.push({obj:"T1",t:`Tunnel T1 gesperrt (CO ${fmt(S.t1.co.x)} ppm)`});z=1;d="T1 gesperrt"}
+     else if(S.t1.co.x>70&&u.tunnel){warns.push({obj:"T1",t:`Tunnel T1: CO erhöht (${fmt(S.t1.co.x)} ppm)`});caps.push({v:54,t:"Tunnel T1 mit erhöhten CO-Werten",obj:"T1"})}}
+   add("tunnel",z,d)}
+  activeReports().filter(e=>e.route===r).forEach(e=>{const K=RKIND[e.kind]||RKIND.sonst,t=`Fahrermeldung ${esc(e.plate)}: ${K.n}${e.inTunnel?" im Tunnel T1":""}`;
+    if(e.inTunnel&&r==="B"&&K.tb)blocks.push({obj:e.id,t});else{warns.push({obj:e.id,t});if(K.cap)caps.push({v:K.cap,t,obj:e.id})}});
+  add("traffic",ROUTES[r].traffic,`Auslastung ${Math.round(ROUTES[r].traffic*100)} %`);
+  // Kalman-Fusion; fehlende Quelle = unbekannt (z 0,5, große Unsicherheit)
+  let x=.3,Pk=.09,missingKey=0;const rows=[];
+  SRC.forEach(s=>{const m=sub[s.id],used=u[s.id];let z=m.z,R=s.R;if(!used){z=.5;R=.06;if(s.key)missingKey++}
+    const K=Pk/(Pk+R);x=x+K*(z-x);Pk=(1-K)*Pk;
+    rows.push({s,z,R,K,x,used,detail:m.detail,score:Math.round(100*(1-m.z)),pm:Math.round(100*Math.sqrt(s.R))})});
+  const fused=Math.round(100*(1-x)),sig=Math.max(1,Math.round(100*Math.sqrt(Pk)));
+  if(missingKey)caps.push({v:missingKey>1?39:54,t:"Fehlende Daten",obj:null,missing:true});
+  const cap=caps.length?caps.reduce((a,c)=>c.v<a.v?c:a):null,score=cap?Math.min(fused,cap.v):fused;
+  const conf=missingKey===0&&sig<=5?"hoch":missingKey<=1&&sig<=9?"mittel":"niedrig";
+  const t=trip(r);
+  return {r,blocks,warns,rows,x,P:Pk,fused,score,sf:score,sig,cap,conf,missingKey,label:labelOf(score),ok:blocks.length===0,cost:t.min+.4*(100-score),trip:t};
+}
+function best(){const ev=["A","B","C"].map(evalRoute).filter(e=>e.ok);ev.sort((a,b)=>a.cost-b.cost);return ev[0]||null}
+function naive(){const e=evalRoute("A"),R=ROUTES.A;
+  if(e.ok)return {km:R.km,min:R.min};
+  return {km:R.km+26,min:R.min+34};} // Wenden vor der Engstelle + Umweg
+
+/* ---------- Karte ---------- */
+function baseSVG(){
+  const roadsA=[pts("B")];
+  const roadsB=[pts("A").slice(3),pts("C").slice(1),[P.P1,P.WR,P.BT],[P.M,[600,40]],[P.W,[300,330]],[P.M,[880,120]],[P.BT,[840,620]]];
+  const road=(list,w)=>list.map(p=>`<path class="casing" d="${d(p)}" stroke-width="${w+3}"/>`).join("")+list.map(p=>`<path class="road" d="${d(p)}" stroke-width="${w}"/>`).join("");
+  const towns=[["München",P.M,10,-8,"start"],["Starnberg",[585,212],-10,-6,"end"],["Wolfratshausen",P.WR,10,4,"start"],["Bad Tölz",P.BT,10,4,"start"],
+    ["Weilheim i. OB",P.W,-10,4,"end"],["Murnau",P.Mu,-12,-6,"end"],["Garmisch-Partenkirchen",P.G,-10,22,"end"]];
+  return `<defs><pattern id="alpsp" width="16" height="12" patternUnits="userSpaceOnUse"><path d="M0 11 L5 3 L9 8 L12 4 L16 9" class="alp-stroke" fill="none"/></pattern></defs>
+  <rect width="1000" height="720" class="land"/>
+  <path d="M0 615 Q110 590 220 622 T430 603 T640 618 T830 592 T1000 608 V720 H0Z" class="alps"/>
+  <path d="M0 615 Q110 590 220 622 T430 603 T640 618 T830 592 T1000 608 V720 H0Z" fill="url(#alpsp)"/>
+  <g id="g-base">
+   <text x="905" y="700" class="lake-l">Alpen</text>
+   <path class="river" d="M840 720 Q790 600 772 470 T738 340 T716 300 T735 180 T760 80 T800 0"/>
+   <path class="river" d="M392 720 Q420 690 445 665 T505 622 T572 594 T640 540 T700 430 T716 300" stroke-width="3"/>
+   <ellipse class="water" cx="602" cy="320" rx="17" ry="82"/><ellipse class="water" cx="390" cy="262" rx="18" ry="56"/><ellipse class="water" cx="447" cy="535" rx="20" ry="11"/>
+   <text class="lake-l" x="626" y="300">Starnberger See</text><text class="lake-l" x="300" y="250">Ammersee</text><text class="lake-l" x="372" y="530">Staffelsee</text>
+   <text class="lake-l" x="800" y="300">Isar</text><text class="lake-l" x="642" y="590">Loisach</text>
+   ${road(roadsB,4)}${road(roadsA,7)}
+   <text class="small-l" x="660" y="205">A95</text><text class="small-l" x="520" y="660">B2</text>
+   ${towns.map(([n,p,dx,dy,a])=>`<circle class="town-dot" cx="${p[0]}" cy="${p[1]}" r="4"/><text class="town" x="${p[0]+dx}" y="${p[1]+dy}" text-anchor="${a}">${n}</text>`).join("")}
+  </g>
+  <g id="g-drone">
+   <path class="dz-band" data-obj="Z1" d="${d(pts("B").slice(0,7))}"/>
+   <path class="dz-band" data-obj="Z4" d="${d([P.W,P.C4,P.Mu,P.F1,P.F2,P.G])}"/>
+   <circle class="dz" data-obj="Z2" cx="470" cy="140" r="38"/><text class="dz-l" x="470" y="92" text-anchor="middle">EDMO</text>
+   <path class="dz" data-obj="Z3" d="M425 556 L478 552 L486 590 L442 600 L420 580Z"/><text class="dz-l" x="492" y="568" text-anchor="start">NSG Murnauer Moos</text>
+  </g>
+  <g id="g-routes"></g><g id="g-rast"></g><g id="g-acc"></g><g id="g-works"></g><g id="g-bridges"></g><g id="g-hazards"></g><g id="g-tunnel"></g><g id="g-persons"></g><g id="g-ev"></g><g id="g-trucks"></g>`;
+}
+function drawDynamic(){
+  const ev=evalRoute(S.assigned);
+  $("g-routes").innerHTML=["C","A","B"].filter(r=>r!==S.assigned).concat(S.assigned).map(r=>{
+    const on=r===S.assigned, bad=on&&!ev.ok, p=pts(r), m=p[Math.floor(p.length/2)];
+    return `<path class="rt ${on?"on":""} ${bad?"bad":""}" d="${d(p)}"/>`}).join("")+
+    ["A","B","C"].map(r=>{const p=pts(r),i={A:4,B:5,C:4}[r],m=p[i],on=r===S.assigned,bad=on&&!ev.ok;
+      return `<g class="rt-badge ${on?"on":""} ${bad?"bad":""}" transform="translate(${m[0]+18} ${m[1]-4})"><circle r="11"/><text text-anchor="middle" y="4">${r}</text></g>`}).join("");
+  $("g-acc").innerHTML=ACC.map(a=>`<g class="obj ${S.sel===a.id?"sel":""}" data-obj="${a.id}" transform="translate(${a.at[0].toFixed(1)} ${a.at[1].toFixed(1)})"><circle r="${(5+a.n*.7).toFixed(1)}" class="accdot"/><text class="acc-t" text-anchor="middle" y="3.5">${a.n}</text></g>`).join("");
+  $("g-works").innerHTML=WORKS.map(w=>`<g class="obj ${S.sel===w.id?"sel":""}" data-obj="${w.id}" transform="translate(${(w.at[0]-24).toFixed(1)} ${w.at[1].toFixed(1)})"><path d="M0 -13 L12 9 L-12 9Z" fill="#fff" stroke="#d0021b" stroke-width="3" stroke-linejoin="round"/><circle cx="-1" cy="-4" r="1.8" fill="#111"/><path d="M-1 -2 L-2 4 M-2 1 L3 -1 M3 -1 L5 5 M-6 5 L6 5" stroke="#111" stroke-width="1.6" fill="none" stroke-linecap="round"/></g>`).join("");
+  $("g-bridges").innerHTML=BR.map(b=>{const l=gradeLvl(b.note);
+    return `<g class="obj ${S.sel===b.id?"sel":""}" data-obj="${b.id}" transform="translate(${b.at[0]} ${b.at[1]})"><rect x="-17" y="-10" width="34" height="20" rx="4" fill="var(--${l})" stroke="var(--surface)" stroke-width="2"/>
+    <text class="grade-t ${l==="warn"?"dark":""}" text-anchor="middle" y="4">${fmt(b.note,1)}</text></g>`}).join("");
+  $("g-hazards").innerHTML=HZ.map(h=>{const sel=S.sel===h.id?"sel":"";
+    if(h.kind==="height")return `<g class="obj ${sel}" data-obj="${h.id}" transform="translate(${h.at[0]+22} ${h.at[1]})"><circle r="15" fill="#fff" stroke="#d0021b" stroke-width="4"/><text text-anchor="middle" y="4" style="font:800 10px var(--mono);fill:#111">${fmt(h.clear,1)}</text></g>`;
+    return `<g class="obj ${sel}" data-obj="${h.id}" transform="translate(${h.at[0]+20} ${h.at[1]-6})"><path d="M0 -14 L13 9 L-13 9Z" fill="#fff" stroke="#d0021b" stroke-width="3.5" stroke-linejoin="round"/>
+      ${h.kind==="crest"?'<path d="M-6 5 Q0 -6 6 5" fill="none" stroke="#111" stroke-width="2"/>':'<path d="M-4 -4 L-2 6 M4 -4 L2 6" stroke="#111" stroke-width="2"/>'}</g>`}).join("");
+  const c=S.t1.closed;
+  $("g-tunnel").innerHTML=`<g class="obj ${S.sel==="T1"?"sel":""}" data-obj="T1"><path class="tun ${c?"closed":""}" d="${d([P.T1a,P.T1b])}"/>
+    <path d="${d([P.T1a,P.T1b])}" stroke="var(--surface)" stroke-width="2" stroke-dasharray="4 5"/>
+    <text class="tun-l" x="${P.T1a[0]+16}" y="${P.T1a[1]+18}">T1${c?" · gesperrt":""}</text></g>`;
+  drawCountBadge();drawEvents();drawRast();
+  applyLayers();
+}
+function applyLayers(){
+  const map={rast:"g-rast",acc:"g-acc",works:"g-works",base:"g-base",drone:"g-drone",tunnel:"g-tunnel",persons:"g-persons",trucks:"g-trucks",bridges:"g-bridges",hazards:"g-hazards"};
+  Object.entries(map).forEach(([k,id])=>{const g=$(id);if(g)g.style.display=S.layers[k]?"":"none"});
+}
+
+/* ---------- LKW-Ortung ---------- */
+const TRUCKS=[
+ {id:"M-AV 482",own:true,route:()=>S.assigned,f:0,v:1/55},
+ {id:"RO-LG 117",route:()=>S.t1.closed?"C":"B",f:.55,v:-1/70},
+ {id:"WM-TR 905",route:()=>"C",f:.3,v:1/80},
+ {id:"GAP-K 33",route:()=>"A",f:.7,v:-1/65}
+];
+function pointAt(p,f){const L=[];let tot=0;for(let i=0;i<p.length-1;i++){const l=Math.hypot(p[i+1][0]-p[i][0],p[i+1][1]-p[i][1]);L.push(l);tot+=l}
+  let s=((f%1)+1)%1*tot;for(let i=0;i<L.length;i++){if(s<=L[i]){const t=s/L[i];return {x:p[i][0]+(p[i+1][0]-p[i][0])*t,y:p[i][1]+(p[i+1][1]-p[i][1])*t,seg:i}}s-=L[i]}
+  const e=p[p.length-1];return {x:e[0],y:e[1],seg:L.length-1}}
+function inTunnel(t){if(t.own)return !!S.cnt.own;return t.route()==="B"&&t._seg===7}
+function drawTrucks(){
+  $("g-trucks").innerHTML=TRUCKS.map((t,i)=>`<g class="truck obj ${S.sel==="K"+i?"sel":""}" data-obj="K${i}" id="tr${i}">${t.own?
+    `<circle r="9" fill="var(--accent)"/><g transform="translate(12 6)"><rect class="plate" width="74" height="18" rx="3"/><text class="plate-t" x="37" y="13" text-anchor="middle">${t.id}</text></g>`
+    :`<circle r="6.5" fill="var(--muted)"/>`}</g>`).join("");
+  posTrucks();
+}
+function posTrucks(){TRUCKS.forEach((t,i)=>{const p=(t.own&&S.cnt.own)?pointAt(pts("B"),BLEN.tun):pointAt(pts(t.route()),t.f);t._seg=p.seg;t._x=p.x;t._y=p.y;
+  const g=$("tr"+i);if(g)g.setAttribute("transform",`translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})`)})}
+let last=performance.now();
+function frame(ts){const dt=Math.min(.1,(ts-last)/1000);last=ts;
+  if(!REDUCED){TRUCKS.forEach(t=>{
+    if(t.halt)return;if(t.own&&S.cnt.own){t.f=BLEN.tun;return}
+    t.f+=t.v*dt;if(t.own&&t.f>1){t.f=0;t.passed=false}
+    if(t.own&&S.assigned==="B"&&!t.passed&&pointAt(pts("B"),t.f).seg===7)enterOwn(false)});posTrucks()}
+  requestAnimationFrame(frame)}
+
+/* ---------- Details ---------- */
+function info(){
+  const el=$("info"),id=S.sel;
+  if(!id){el.innerHTML=`<h3>Objekt-Details</h3><p class="muted" style="margin:0">Brücke, Engstelle, Tunnel, Geozone oder LKW in der Karte antippen. Die Hinweise unter „Warnbenachrichtigungen" führen ebenfalls zum Objekt.</p>`;return}
+  const v=S.veh;let h="";
+  const b=BR.find(x=>x.id===id),hz=HZ.find(x=>x.id===id);
+  if(b){const l=gradeLvl(b.note),z=b.zone?ZONES[b.zone]:null,over=b.limit&&v.w>b.limit;
+    h=`<div class="mhead"><h3>Brücke ${b.name}</h3><span class="pill ${l}"><i></i>Note ${fmt(b.note,1)} · ${gradeTxt(b.note)}</span></div>
+    <dl class="kv"><dt>Bauwerk</dt><dd>${b.type}</dd><dt>Letzte Hauptprüfung</dt><dd>${b.year}</dd>
+    <dt>Lastbeschränkung</dt><dd>${b.limit?b.limit+" t":"keine"}${over?` <span class="pill crit"><i></i>${fmt(v.w)} t zu schwer</span>`:""}</dd>
+    <dt>Auf Route</dt><dd>${b.routes.length?b.routes.join(", "):"keiner der Routen"}</dd>
+    <dt>Drohneninspektion</dt><dd>${z?`Genehmigung nötig: ${z.name}`:"möglich, keine Geozone"}</dd></dl>`}
+  else if(hz){let st="";
+    if(hz.kind==="height")st=v.h>hz.clear?`<span class="pill crit"><i></i>Fahrzeug ${fmt(v.h,2)} m: nicht passierbar</span>`:`<span class="pill ok"><i></i>${fmt(hz.clear-v.h,2)} m Luft</span>`;
+    else st=`<span class="pill warn"><i></i>Warnung für LKW</span>`;
+    h=`<div class="mhead"><h3>${hz.name}</h3>${st}</div><dl class="kv"><dt>Beschreibung</dt><dd>${hz.txt}</dd><dt>Auf Route</dt><dd>${hz.route}</dd><dt>Quelle</dt><dd>Engstellen-Kataster (Demo)</dd></dl>`}
+  else if(ACC.find(a=>a.id===id)){const a=ACC.find(x=>x.id===id);h=`<div class="mhead"><h3>Unfallschwerpunkt</h3><span class="pill warn"><i></i>${a.n} Unfälle in 3 Jahren</span></div><dl class="kv"><dt>Muster</dt><dd>${a.txt}</dd><dt>Auf Route</dt><dd>${a.routes.join(", ")}</dd><dt>Quelle</dt><dd>Unfallatlas: Unfälle mit Personenschaden und LKW-Beteiligung (Demo-Werte)</dd></dl>`}
+  else if(WORKS.find(w=>w.id===id)){const w=WORKS.find(x=>x.id===id);h=`<div class="mhead"><h3>${w.name}</h3><span class="pill warn"><i></i>+${w.delay} min</span></div><dl class="kv"><dt>Verkehrsführung</dt><dd>${w.txt}</dd><dt>Auf Route</dt><dd>${w.routes.join(", ")}</dd><dt>Quelle</dt><dd>Autobahn-API der Autobahn GmbH (Demo)</dd></dl>`}
+  else if(RAST.find(x=>x.id===id))h=rastInfo(RAST.find(x=>x.id===id));
+  else if(S.events&&S.events[id])h=eventInfo(S.events[id]);
+  else if(id==="T1"){const t=S.t1;h=`<div class="mhead"><h3>Tunnel T1 · Straßentunnel</h3><span class="pill ${t.closed?"crit":"ok"}"><i></i>${t.closed?"gesperrt":"frei"}</span></div>
+    <dl class="kv"><dt>Länge</dt><dd>3.000 m, lichte Höhe 4,50 m</dd><dt>Zählung</dt><dd>${S.cnt.veh.length} Fahrzeuge im Tunnel · Ø Durchfahrt ${mmss(avgTransit())} min</dd><dt>CO (gefiltert)</dt><dd class="mono">${fmt(t.co.x)} ppm</dd><dt>Sichttrübe</dt><dd class="mono">${fmt(t.vis.x*1000,1)} ·10⁻³ /m</dd>
+    <dt>Ortung im Tunnel</dt><dd>GNSS fällt aus, Fahrzeuge werden über Tunnelanker geortet</dd></dl>`}
+  else if(ZONES[id]){const z=ZONES[id];h=`<div class="mhead"><h3>${z.name}</h3><span class="pill" style="color:var(--drone)"><i></i>Geozone</span></div><p style="margin:0">${z.rule}</p><p class="muted" style="margin:0">Relevant für Brückenprüfung per Drohne. Geometrie vereinfacht.</p>`}
+  else if(id[0]==="K"){const t=TRUCKS[+id.slice(1)],tun=inTunnel(t);
+    h=`<div class="mhead"><h3>LKW ${t.id}</h3><span class="pill ${tun?"warn":"acc"}"><i></i>${tun?(t.own&&S.cnt.own?"GNSS aus · seit "+mmss(S.cnt.simT-S.cnt.own.t0)+" min im Tunnel":"GNSS aus · im Tunnel"):"GNSS-Ortung"}</span></div>
+    <dl class="kv"><dt>Route</dt><dd>${t.route()} · ${ROUTES[t.route()].name}</dd>${t.own?`<dt>Profil</dt><dd class="mono">${fmt(v.h,2)} × ${fmt(v.b,2)} × ${fmt(v.l,1)} m · ${fmt(v.w,1)} t · ${v.drive==="ev"?"Elektro":"Diesel"}</dd>`:""}<dt>Quelle</dt><dd>Telematik (rFMS), Demo</dd></dl>`}
+  el.innerHTML=h;
+}
+
+/* ---------- Routen-Panel ---------- */
+const LCOL={A:["#1f8a4c","#fff"],B:["#5f9e33","#fff"],C:["#d4ad00","#1a1408"],D:["#e07b00","#fff"],E:["#c62f2f","#fff"]};
+const lbl=(L,big)=>`<span class="lab ${big?"big":""}" style="background:${LCOL[L][0]};color:${LCOL[L][1]}">${L}</span>`;
+function sfLvl(sf){return sf>=80?"ok":sf>=60?"warn":"crit"}
+const lastHTML={};
+function setHTML(id,h){if(lastHTML[id]===h)return false;lastHTML[id]=h;$(id).innerHTML=h;return true}
+function renderRoutes(){
+  const bst=best();
+  const h=["A","B","C"].map(r=>{const e=evalRoute(r),R=ROUTES[r],on=r===S.assigned,t=e.trip;
+    const tags=[];if(on)tags.push(`<span class="pill acc"><i></i>Zugewiesen</span>`);
+    if(bst&&bst.r===r)tags.push(`<span class="pill ok"><i></i>Empfohlen</span>`);
+    if(!e.ok)tags.push(`<span class="pill crit"><i></i>Gesperrt für dieses Fahrzeug</span>`);
+    else if(e.warns.length)tags.push(`<span class="pill warn"><i></i>${e.warns.length} Hinweis${e.warns.length>1?"e":""}</span>`);
+    if(t.stop)tags.push(`<span class="pill warn"><i></i>${t.ev?"Ladestopp":"Tankstopp"} +${t.stopMin} min</span>`);
+    return `<button class="ropt ${on?"on":""}" data-r="${r}" type="button"><span class="L">${r}</span><span class="n">${R.name}</span>
+      <span class="m">${R.km} km · ${t.min} min · ≈ ${fmt(t.need)} ${t.unit}</span>
+      <span class="sf">${e.ok?`<span class="sfrow">${lbl(e.label)}<b>${e.score} %</b></span><span class="muted" style="font-size:11px">± ${e.sig} · Konfidenz ${e.conf}</span>`:`<b style="color:var(--crit);font-size:14px">gesperrt</b><span class="muted" style="font-size:11px">nicht befahrbar</span>`}</span>
+      <span class="tags">${tags.join("")}</span></button>`}).join("");
+  if(setHTML("routes",h))$("routes").querySelectorAll(".ropt").forEach(b=>b.onclick=()=>assign(b.dataset.r,"manuell"));
+  $("replan").disabled=!bst||bst.r===S.assigned;
+  $("replan").textContent=!bst?"Keine befahrbare Route":bst.r===S.assigned?"Beste Route ist zugewiesen":`Route neu planen → ${bst.r}`;
+  const n=naive(),R=ROUTES[S.assigned],e=evalRoute(S.assigned);
+  if(!e.ok)setHTML("save",`<div class="h">Zugewiesene Route ${S.assigned} ist für dieses Fahrzeug nicht befahrbar.</div><div class="muted" style="font-size:12px">Ohne Warnung müsste der Fahrer vor der Engstelle wenden. „Route neu planen" verhindert das.</div>`);
+  else{const a=trip("A",n.km,n.min),b=e.trip,dk=n.km-R.km,dm=a.min-b.min,dE=a.need-b.need,dEur=a.total-b.total,sg=v=>v>=0?"−":"+";
+    setHTML("save",`<div class="h">Gegenüber Standard-Navi${evalRoute("A").ok?"":" (inkl. Wenden + Umweg vor der Unterführung)"}</div>
+    <div class="row"><div><b>${sg(dm)}${Math.abs(dm)} min</b><span>Fahrzeit</span></div><div><b>${sg(dk)}${Math.abs(dk)} km</b><span>Strecke</span></div>
+    <div><b>${sg(dE)}${fmt(Math.abs(dE),1)} ${b.unit}</b><span>${b.ev?"Strom":"Diesel"}</span></div><div><b>${sg(dEur)}${fmt(Math.abs(dEur))} €</b><span>Kosten</span></div></div>`)}
+  renderScore();
+}
+function kalmanTable(e){return `<p class="muted" style="margin:8px 0 0;font-size:12.5px">Jede Quelle liefert ein Risiko z (0 = sicher, 1 = nicht befahrbar) mit ihrer Unsicherheit R. Eine ausgeschaltete Quelle zählt als unbekannt: z = 0,5 mit großer Unsicherheit.</p>
+ <div class="tscroll"><table class="ktab"><thead><tr><th>Quelle</th><th>z</th><th>R</th><th>K</th><th>x</th></tr></thead><tbody><tr><td>Startannahme</td><td>–</td><td>–</td><td>–</td><td>0,30</td></tr>${e.rows.map(r=>`<tr><td>${r.s.n}${r.used?"":" (fehlt)"}</td><td>${fmt(r.z,2)}</td><td>${fmt(r.R,3)}</td><td>${fmt(r.K,2)}</td><td>${fmt(r.x,2)}</td></tr>`).join("")}</tbody></table></div>
+ <div class="formula">K = P / (P + R) · x ← x + K·(z − x) · P ← (1 − K)·P<br>Score = (1 − x) · 100 % = ${e.fused} % ± ${e.sig}${e.cap&&e.cap.v<e.fused?`<br>Schwächstes Glied → begrenzt auf ${e.cap.v} %`:""}</div>`}
+function renderScore(){
+  const r=S.assigned,e=evalRoute(r),RNG=["85–100 %","70–84 %","55–69 %","40–54 %","0–39 %"];
+  const ladder=LABELS.map(([L],i)=>`<div class="lrow"><div class="step" style="width:${44+i*11}%;background:${LCOL[L][0]};color:${LCOL[L][1]}"><b>${L}</b><span>${RNG[i]}</span></div>${e.ok&&e.label===L?`<div class="mark" style="background:${LCOL[L][0]};color:${LCOL[L][1]}">${e.score} % ± ${e.sig}</div>`:""}</div>`).join("");
+  const h=`<div class="mhead"><h3>Bewertung Route ${r}</h3>${e.ok?`<span class="pill ${e.conf==="hoch"?"ok":e.conf==="mittel"?"warn":"crit"}"><i></i>Konfidenz ${e.conf}</span>`:`<span class="pill crit"><i></i>Gesperrt für dieses Fahrzeug</span>`}</div>
+   <div class="ladder" aria-label="Label A bis E">${ladder}</div>
+   ${e.cap&&!e.cap.missing&&e.cap.v<e.fused?`<div class="capnote">Schwächstes Glied: ${e.cap.t} begrenzt die Route auf ${labelOf(e.cap.v)}. Ohne diese Stelle läge sie bei ${e.fused} %. Gute Abschnitte gleichen eine schwache Stelle nicht aus.</div>`:""}
+   ${e.missingKey?`<div class="capnote warn">Es fehlen ${e.missingKey} wichtige Datenquelle${e.missingKey>1?"n":""}. Die Route gilt deshalb nicht als sicher und bekommt höchstens Label ${e.missingKey>1?"E":"D"}.</div>`:""}
+   <div class="subs">${e.rows.map(x=>`<label class="subrow ${x.used?"":"off"}" for="src-${x.s.id}"><input type="checkbox" id="src-${x.s.id}" data-src="${x.s.id}" ${x.used?"checked":""}><span class="sn"><b>${x.s.n}</b><small>${x.used?x.detail:"Quelle ausgeschaltet"} · ${x.s.q}</small></span><span class="sv mono">${x.used?x.score+" ± "+x.pm:"–"}</span><span class="sb"><i style="width:${x.used?x.score:0}%;background:var(--${sfLvl(x.score)})"></i></span></label>`).join("")}</div>
+   <p class="muted" style="font-size:11.5px;margin:0">Haken entfernen schaltet eine Quelle aus. Dann fehlen Daten: Die Unsicherheit steigt und die Konfidenz sinkt.</p>
+   <details id="kdet2" ${S.kopen?"open":""}><summary>Rechenweg (Kalman-Filter)</summary>${kalmanTable(e)}</details>`;
+  if(setHTML("score",h)){
+    $("score").querySelectorAll("input[data-src]").forEach(i=>i.onchange=()=>{S.use[i.dataset.src]=i.checked;refresh()});
+    $("kdet2").ontoggle=()=>{S.kopen=$("kdet2").open};
+  }
+}
+function compass(w){const c=40,rr=30,pt=(a,r)=>[(c+r*Math.sin(a*RAD)).toFixed(1),(c-r*Math.cos(a*RAD)).toFixed(1)];const [hx,hy]=pt(w.h,rr-6),[sx,sy]=pt(w.az,rr);
+  return `<svg viewBox="0 0 80 96" class="comp" role="img" aria-label="Sonne und Fahrtrichtung im ungünstigsten Moment"><circle cx="40" cy="40" r="${rr}" class="cc"/><text x="40" y="7" class="gt" text-anchor="middle">N</text><line x1="40" y1="40" x2="${hx}" y2="${hy}" class="ch"/><circle cx="40" cy="40" r="3" class="cd"/><circle cx="${sx}" cy="${sy}" r="6" class="cs"/><text x="40" y="88" class="gt" text-anchor="middle">${fmt(w.el,1)}° hoch</text></svg>`}
+function renderGlare(){
+  const r=S.assigned,g=glare(r,S.dep.date,S.dep.time),pl=planner(r),cur=tmin(S.dep.time);
+  const bestP=pl.reduce((a,b)=>b.min<a.min||(b.min===a.min&&Math.abs(tmin(b.t)-cur)<Math.abs(tmin(a.t)-cur))?b:a);
+  const max=Math.max(10,...pl.map(p=>p.min)),W=600,H=110,bw=W/pl.length;
+  const bars=pl.map((p,i)=>{const hh=p.min/max*(H-26);return `<rect x="${(i*bw+1).toFixed(1)}" y="${(H-16-Math.max(hh,1.5)).toFixed(1)}" width="${(bw-2).toFixed(1)}" height="${Math.max(hh,1.5).toFixed(1)}" class="gb ${p.t===S.dep.time?"cur":""} ${p.t===bestP.t?"best":""}" data-t="${p.t}"><title>Abfahrt ${p.t} Uhr: ${p.min} min Gegenlicht</title></rect>`}).join("");
+  const ticks=[6,9,12,15,18].map(hr=>`<text x="${((hr-5)*4*bw).toFixed(1)}" y="${H-3}" class="gt">${hr}:00</text>`).join("");
+  const better=bestP.t!==S.dep.time&&bestP.min<g.min;
+  $("glare").innerHTML=`<div class="mhead"><h3>Gegenlicht-Planer</h3>${g.min?`<span class="pill warn"><i></i>${g.min} min Gegenlicht</span>`:`<span class="pill ok"><i></i>kein Gegenlicht</span>`}</div>
+   <div class="gin"><label for="g-date">Datum<input type="date" id="g-date" value="${S.dep.date}"></label><label for="g-time">Abfahrt<input type="time" id="g-time" step="900" value="${S.dep.time}"></label></div>
+   <p style="margin:0;font-size:13px">${g.min?`Route ${r}: Von ${addMin(S.dep.time,g.first)} bis ${addMin(S.dep.time,g.last)} Uhr steht die Sonne tief in Fahrtrichtung, am tiefsten ${fmt(g.worst.el,1)}° über dem Horizont.`:`Route ${r}: Bei Abfahrt um ${S.dep.time} Uhr steht die Sonne nie tief in Fahrtrichtung.`}${better?` Beste Abfahrt: <b>${bestP.t} Uhr</b> mit ${bestP.min} min.`:""}</p>
+   <div class="gwrap"><svg viewBox="0 0 ${W} ${H}" class="gchart" role="img" aria-label="Gegenlicht-Minuten je Abfahrtszeit zwischen 5 und 20 Uhr">${bars}${ticks}</svg>${g.worst?compass(g.worst):""}</div>
+   <div class="legend"><span><i style="background:var(--warn)"></i>Gegenlicht-Minuten je Abfahrt, 15-Minuten-Raster</span><span><i style="background:var(--accent)"></i>gewählt</span><span><i style="background:var(--ok)"></i>beste Abfahrt</span>${g.worst?`<span><i style="background:var(--warn);width:8px;height:8px;border-radius:50%"></i>Sonne · <i style="background:var(--accent)"></i>Fahrtrichtung</span>`:""}</div>
+   ${better?`<button class="btn" id="g-best" type="button">Abfahrt auf ${bestP.t} Uhr setzen</button>`:""}
+   <p class="muted" style="font-size:11.5px;margin:0">Gegenlicht heißt hier: Sonne 0–25° über dem Horizont und höchstens 30° neben der Fahrtrichtung. Tunnel zählen nicht. Gelände, Bäume und Häuser sind nicht berücksichtigt.</p>`;
+  const setT=t=>{S.dep.time=t;refresh()};
+  $("g-date").onchange=e=>{if(e.target.value){S.dep.date=e.target.value;refresh()}};
+  $("g-time").onchange=e=>{if(e.target.value)setT(e.target.value)};
+  $("glare").querySelectorAll(".gb").forEach(b=>b.onclick=()=>setT(b.dataset.t));
+  if($("g-best"))$("g-best").onclick=()=>{setT(bestP.t);toast("Abfahrt auf "+bestP.t+" Uhr gesetzt")};
+}
+function reportText(){
+  const r=S.assigned,e=evalRoute(r),R=ROUTES[r],v=S.veh,g=glare(r,S.dep.date,S.dep.time),t=e.trip,L=[];
+  L.push("STRECKENBERICHT · ARGUSVISIO (Prototyp, Demo-Daten)");
+  L.push(`Abruf: ${new Date().toLocaleString("de-DE")}`);
+  L.push(`Tour: Hub München Nord → Baustelle Garmisch-Partenkirchen`);
+  L.push(`Route ${r}: ${R.name}, ${R.km} km, ca. ${t.min} min`);
+  L.push(`Abfahrt: ${S.dep.date.split("-").reverse().join(".")}, ${S.dep.time} Uhr`);
+  L.push(`Fahrzeug: M-AV 482, ${fmt(v.h,2)} × ${fmt(v.b,2)} × ${fmt(v.l,1)} m, ${fmt(v.w,1)} t (zul. ${fmt(v.zgg,1)} t), ${v.drive==="ev"?"Elektro":"Diesel"}`);
+  L.push("");
+  L.push(e.ok?`ERGEBNIS: Label ${e.label} · ${e.score} % ± ${e.sig} · Konfidenz ${e.conf}`:"ERGEBNIS: Für dieses Fahrzeug nicht befahrbar");
+  if(e.cap&&e.cap.v<e.fused)L.push(`Begrenzt durch schwächstes Glied: ${e.cap.t}`);
+  L.push("");L.push("TEILWERTE");
+  e.rows.forEach(x=>L.push(`- ${x.s.n}: ${x.used?x.score+" ± "+x.pm+" ("+x.detail+")":"nicht ausgewertet, Quelle ausgeschaltet"} [${x.s.q}]`));
+  const all=[...e.blocks.map(b=>"SPERRE: "+b.t),...e.warns.map(w=>w.t)];
+  L.push("");L.push("KRITISCHE STELLEN");if(all.length)all.forEach(a=>L.push("- "+a));else L.push("- keine");
+  L.push("");L.push(`GEGENLICHT: ${g.min?g.min+" min, von "+addMin(S.dep.time,g.first)+" bis "+addMin(S.dep.time,g.last)+" Uhr":"keines bei dieser Abfahrt"}`);
+  L.push("");L.push("QUELLEN: BASt-Brückenstatistik, Unfallatlas, Autobahn-API, DWD, Bayerische Vermessungsverwaltung, Tunnelleitzentrale, Telematik. Im Prototyp sind alle Werte Demo-Daten.");
+  L.push("Der Score ist eine Einordnung auf Basis der genannten Daten zum Abrufzeitpunkt. Er sichert keine Gefahrlosigkeit zu und ersetzt keine Verkehrsregel, behördliche Anordnung oder Prüfung vor Ort.");
+  return L.join("\n");
+}
+function renderReport(){$("rep-text").textContent=reportText()}
+function assign(r,why){
+  if(r===S.assigned)return;
+  const from=S.assigned;S.assigned=r;if(!S.cnt.own){TRUCKS[0].f=0;TRUCKS[0].passed=false}
+  const e=evalRoute(r);
+  if(why==="replan"||why==="auto"){const n=naive(),a=trip("A",n.km,n.min),b=trip(r);
+    logA(why==="auto"?"crit":"ok",`M-AV 482 umgeplant: Route ${from} → ${r} (Label ${e.label}, ${e.score} %). ${why==="auto"?"Grund: "+(S.autoReason||"Tunnel T1 gesperrt")+". ":""}Ersparnis gegenüber Standard-Navi: ${fmt(a.total-b.total)} €, ${fmt(a.co2-b.co2)} kg CO₂.`,null)}
+  else logA(e.ok?"info":"crit",`Route ${r} manuell zugewiesen${e.ok?` (Label ${e.label})`:": für dieses Fahrzeug nicht befahrbar"}.`,null);
+  refresh();
+}
+function logA(lvl,t,obj){S.log.unshift({lvl,t,obj,time:now()});S.log=S.log.slice(0,30)}
+function renderAlerts(){
+  const e=evalRoute(S.assigned);
+  const live=[...e.blocks.map(x=>({lvl:"crit",...x})),...e.warns.map(x=>({lvl:"warn",...x}))];
+  const h=`<div class="sect">Aktuelle Route ${S.assigned} · M-AV 482</div>`+
+   (live.length?live.map(a=>`<button class="al ${a.lvl}" data-o="${a.obj||""}" type="button"><span class="s"></span><span>${a.t}</span></button>`).join(""):`<div class="al ok"><span class="s"></span><span>Keine Hinweise auf dieser Route.</span></div>`)+
+   `<div class="sect">Verlauf</div>`+S.log.map(a=>`<button class="al ${a.lvl}" data-o="${a.obj||""}" type="button"><span class="s"></span><span><small>${a.time}</small>${a.t}</span></button>`).join("");
+  if(setHTML("alerts",h))$("alerts").querySelectorAll(".al[data-o]").forEach(b=>b.onclick=()=>{if(b.dataset.o){S.sel=b.dataset.o;drawDynamic();drawTrucks();info()}});
+}
+function refresh(){drawDynamic();drawTrucks();renderRoutes();renderAlerts();renderEnergy();renderGlare();renderReport();info()}
+
+/* ---------- Tunnel-Simulation ---------- */
+function kf(s,z,Q,R){s.P+=Q;const K=s.P/(s.P+R);s.x+=K*(z-s.x);s.P*=(1-K)}
+/* Fahrzeugzählung an den Portalen + Durchfahrtswächter (Demo im Zeitraffer) */
+const TX=10; // 1 s echte Zeit = 10 s Tunnelzeit
+S.cnt={simT:0,in:0,out:0,veh:[],trans:[],hist:[],own:null,noExit:0,jamLogged:false,wd:{warn:5,alarm:6}};
+S.pendingReplan=false;
+const BLEN=(()=>{const p=pts("B"),L=[];let tot=0;for(let i=0;i<p.length-1;i++){const l=Math.hypot(p[i+1][0]-p[i][0],p[i+1][1]-p[i][1]);L.push(l);tot+=l}
+  const cum=i=>L.slice(0,i).reduce((a,b)=>a+b,0);return {tun:(cum(7)+L[7]/2)/tot,aft:(cum(8)+2)/tot}})();
+const mmss=s=>`${Math.floor(s/60)}:${pad2(Math.floor(s%60))}`;
+function poisson(l){const L=Math.exp(-l);let k=0,p=1;do{k++;p*=Math.random()}while(p>L);return k-1}
+const avgTransit=()=>{const t=S.cnt.trans;return t.length?t.reduce((a,b)=>a+b,0)/t.length:180};
+const normalInside=()=>1.1*avgTransit()/TX;
+function cntJam(){const c=S.cnt;return c.veh.length>normalInside()*1.4+4||(c.noExit>=9&&c.veh.length>3)}
+function enterOwn(stuck){const c=S.cnt;if(c.own)return;
+  const v={t0:c.simT,dur:Math.max(150,180+gauss()*15),own:true,stuck:!!stuck,ack:false,level:0};
+  c.own=v;c.veh.push(v);c.in++;TRUCKS[0].f=BLEN.tun;
+  logA("info",`M-AV 482 fährt in Tunnel T1 ein. Kein GNSS-Signal, der Durchfahrtswächter läuft (normal ca. ${mmss(avgTransit())} min).`,"T1")}
+function ownExit(v,dw){S.cnt.own=null;TRUCKS[0].f=BLEN.aft;TRUCKS[0].passed=true;
+  logA(v.level>=1?"ok":"info",`M-AV 482 hat Tunnel T1 nach ${mmss(dw)} min verlassen. GNSS-Signal wieder da.${v.level>=2&&!v.ack?" Meldung an die Flottenleitung aufgehoben.":""}`,null);
+  if(S.pendingReplan){S.pendingReplan=false;const b=best();if(b&&b.r!==S.assigned)assign(b.r,"auto");else refresh()}}
+function cntStep(silent){
+  const c=S.cnt,t1=S.t1;c.simT+=TX;
+  if(!t1.closed){const n=poisson(1.1);for(let i=0;i<n;i++){c.in++;c.veh.push({t0:c.simT,dur:Math.max(130,180+gauss()*18)})}}
+  const cap=t1.alarm?0:5;let exits=0;const keep=[];
+  c.veh.sort((a,b)=>a.t0-b.t0);
+  for(const v of c.veh){const dw=c.simT-v.t0;
+    if(exits<cap&&!v.stuck&&dw>=v.dur){exits++;c.out++;if(v.own)ownExit(v,dw);else{c.trans.push(dw);if(c.trans.length>20)c.trans.shift()}}
+    else keep.push(v)}
+  c.veh=keep;c.noExit=exits?0:c.noExit+1;
+  c.hist.push(c.veh.length);if(c.hist.length>60)c.hist.shift();
+  if(silent)return;
+  const jam=cntJam();
+  if(jam&&!c.jamLogged){c.jamLogged=true;logA("warn",`Fahrzeugzählung T1: Ausfahrten stocken. ${c.veh.length} Fahrzeuge im Tunnel, normal ca. ${Math.round(normalInside())}. Möglicher Stau oder Stillstand.`,"T1")}
+  else if(!jam&&c.jamLogged&&c.veh.length<=normalInside()*1.2+3){c.jamLogged=false;logA("ok","Fahrzeugzählung T1: Der Verkehr fließt wieder normal.","T1")}
+  c.veh.forEach(v=>{if(v.own||!v.stuck||v.logged)return;
+    if(c.simT-v.t0>=c.wd.alarm*60&&!jam){v.logged=true;logA("warn",`Fahrzeugzählung T1: Ein Fahrzeug ist seit über ${fmt(c.wd.alarm,1)} min im Tunnel, der übrige Verkehr fließt. Mögliche Panne, Hinweis an die Tunnelleitzentrale.`,"T1")}});
+  const o=c.own;
+  if(o&&!o.ack){const dw=c.simT-o.t0;
+    if(dw>=c.wd.warn*60&&o.level<1){o.level=1;if(S.me&&S.me.plate==="M-AV 482")openCheckin("tunnel",30);logA("warn",`M-AV 482 seit ${mmss(dw)} min ohne Signal im Tunnel T1 (normal ${mmss(avgTransit())}). Vorwarnung: Die Fahrer-App fragt nach.`,"T1")}
+    if(dw>=c.wd.alarm*60&&o.level<2){o.level=2;
+      const ctx=t1.alarm||t1.closed?"Gefahrenlage im Tunnel (CO-Alarm). Der Fahrer ist möglicherweise in Gefahr.":jam?"Stau im Tunnel, viele Fahrzeuge stehen.":"Andere Fahrzeuge kommen normal heraus. Einzelfall: Panne, Unfall oder Notfall des Fahrers möglich.";
+      logA("crit",`M-AV 482 seit ${mmss(dw)} min ohne Signal im Tunnel T1. ${ctx} Meldung an die Flottenleitung gesendet.`,"T1");toast("Meldung an Flottenleitung: M-AV 482 im Tunnel überfällig")}}
+}
+function wdContext(){const t1=S.t1;return t1.alarm||t1.closed?["crit","Gefahrenlage: CO-Alarm im Tunnel"]:cntJam()?["warn","Stau: Ausfahrten stocken"]:["acc","Verkehr fließt: Einzelfall"]}
+function drawCountBadge(){const c=S.cnt,jam=cntJam(),g=$("g-persons");if(!g)return;
+  g.innerHTML=`<g class="obj ${S.sel==="T1"?"sel":""}" data-obj="T1" transform="translate(382 594)"><rect width="76" height="34" rx="6" class="cntbox ${jam?"bad":""}"/><text class="cnt-t" x="38" y="14" text-anchor="middle">${c.veh.length} im Tunnel</text><text class="cnt-s" x="38" y="27" text-anchor="middle">↓${c.in} ↑${c.out}</text></g>`}
+function initCount(){
+  $("t2card").innerHTML=`<div class="mhead"><div><h3>Tunnel T1 · Fahrzeugzählung &amp; Durchfahrtswächter</h3><span class="muted" style="font-size:12px">Zählstellen an beiden Portalen · Demo im Zeitraffer ×10</span></div><span id="cnt-pill"></span></div>
+   <div class="kpis" id="cnt-kpi"></div>
+   <svg id="cnt-chart" viewBox="0 0 600 120" class="gchart" role="img" aria-label="Fahrzeuge im Tunnel in den letzten 10 Minuten"></svg>
+   <div class="legend"><span><i style="background:var(--accent)"></i>Fahrzeuge im Tunnel</span><span><i style="background:var(--muted)"></i>normal</span><span>letzte 10 min Tunnelzeit</span></div>
+   <div class="wd" id="wd-box"></div>
+   <div class="gin"><label for="wd-warn">Vorwarnung ab (min)<input id="wd-warn" type="number" min="1" step="0.5" value="${S.cnt.wd.warn}"></label><label for="wd-alarm">Meldung an Flottenleitung ab (min)<input id="wd-alarm" type="number" min="1" step="0.5" value="${S.cnt.wd.alarm}"></label></div>`;
+  $("wd-warn").oninput=e=>{const v=parseFloat(e.target.value);if(!isNaN(v))S.cnt.wd.warn=v};
+  $("wd-alarm").oninput=e=>{const v=parseFloat(e.target.value);if(!isNaN(v))S.cnt.wd.alarm=v};
+}
+function renderCount(){
+  const c=S.cnt,jam=cntJam(),avg=avgTransit(),norm=normalInside();
+  setHTML("cnt-pill",`<span class="pill ${jam?"warn":"ok"}"><i></i>${jam?"Ausfahrten stocken":"Verkehr fließt"}</span>`);
+  setHTML("cnt-kpi",`<div class="kpi"><span>Einfahrten</span><b>${fmt(c.in)}</b></div><div class="kpi"><span>Ausfahrten</span><b>${fmt(c.out)}</b></div><div class="kpi"><span>Im Tunnel (normal ${Math.round(norm)})</span><b class="${jam?"warn":""}">${c.veh.length}</b></div><div class="kpi"><span>Ø Durchfahrt</span><b>${mmss(avg)} min</b></div>`);
+  const H=120,W=600,mx=Math.max(40,...c.hist)*1.1,y=v=>(H-12-(v/mx)*(H-24)).toFixed(1),x=i=>(i/59*W).toFixed(1),off=60-c.hist.length;
+  setHTML("cnt-chart",`<line x1="0" x2="${W}" y1="${y(norm)}" y2="${y(norm)}" class="nl"/><polyline points="${c.hist.map((v,i)=>x(i+off)+","+y(v)).join(" ")}" class="cl"/>${[0,20,40,60].filter(v=>v<mx).map(v=>`<text x="2" y="${(+y(v)-3).toFixed(1)}" class="gt">${v}</text>`).join("")}`);
+  const o=c.own;let h;
+  if(!o)h=`<div class="wdh"><b>Durchfahrtswächter</b><span class="pill"><i></i>kein eigenes Fahrzeug im Tunnel</span></div><p class="muted" style="margin:0;font-size:12.5px">Fährt M-AV 482 auf Route B in Tunnel T1 ein, fällt das GNSS-Signal weg. Der Wächter startet dann automatisch und vergleicht die Zeit im Tunnel mit der üblichen Durchfahrtszeit.</p>`;
+  else{const dw=c.simT-o.t0,W2=Math.max(c.wd.alarm*60*1.25,dw+30),pc=s=>(s/W2*100).toFixed(1)+"%",[cl,ct]=wdContext();
+    const lvl=o.ack?"ok":o.level>=2?"crit":o.level>=1?"warn":"acc";
+    const st=o.ack?"Fahrer hat sich gemeldet":o.level>=2?"Meldung an Flottenleitung gesendet":o.level>=1?"Vorwarnung":"Durchfahrt läuft normal";
+    h=`<div class="wdh"><b>Durchfahrtswächter · M-AV 482</b><span class="pill ${lvl}"><i></i>${st}</span></div>
+     <div class="wdt"><span class="mono wdtime ${lvl}">${mmss(dw)}</span><span class="muted">min im Tunnel ohne Signal · normal ${mmss(avg)} min</span></div>
+     <div class="wdbar" aria-hidden="true"><i style="width:${pc(Math.min(dw,W2))};background:var(--${lvl==="acc"?"accent":lvl})"></i><em style="left:${pc(avg)}"></em><em class="w" style="left:${pc(c.wd.warn*60)}"></em><em class="a" style="left:${pc(c.wd.alarm*60)}"></em></div>
+     <div class="legend"><span>| Ø ${mmss(avg)}</span><span style="color:var(--warn)">| Vorwarnung ${fmt(c.wd.warn,1)} min</span><span style="color:var(--crit)">| Meldung ${fmt(c.wd.alarm,1)} min</span><span class="pill ${cl}"><i></i>${ct}</span></div>
+     <ol class="esc"><li class="${o.level>=1?"on":""}">Fahrer-App fragt: „Alles in Ordnung?“</li><li class="${o.level>=2?"on":""}">Push und SMS an die Flottenleitung, letzte Position: Einfahrt T1</li><li class="${o.level>=2&&cl==="crit"?"on":""}">Bei Gefahrenlage: Tunnelleitzentrale bzw. Notruf 112</li></ol>
+     ${o.level>=1&&!o.ack?`<div class="demo"><button class="btn" id="wd-ack" type="button">Fahrer hat sich gemeldet</button><button class="btn" id="wd-call" type="button">Tunnelleitzentrale informiert</button></div>`:""}`}
+  if(setHTML("wd-box",h)){
+    if($("wd-ack"))$("wd-ack").onclick=()=>{const o=S.cnt.own;if(!o)return;o.ack=true;o.stuck=false;o.dur=Math.min(o.dur,(S.cnt.simT-o.t0)+30);logA("ok","Der Fahrer von M-AV 482 hat sich gemeldet. Meldung geschlossen.",null);renderAlerts();renderCount()};
+    if($("wd-call"))$("wd-call").onclick=()=>{logA("info","Die Flottenleitung hat die Tunnelleitzentrale T1 informiert.","T1");renderAlerts();toast("Im Verlauf vermerkt")}}
+}
+function tick(silent){
+  const t=S.t1;
+  t.coTrue=t.alarm?Math.min(165,t.coTrue+7):Math.max(24,t.coTrue-(t.coTrue>30?6:0))+gauss()*.4;
+  t.visTrue=t.alarm?Math.min(.0115,t.visTrue+.0005):Math.max(.0025,t.visTrue-.0004);
+  const zc=t.coTrue+gauss()*8;kf(t.co,zc,6,64);
+  kf(t.vis,t.visTrue+gauss()*.0006,4e-8,3.6e-7);
+  t.temp=+(14.2+(t.alarm?(t.coTrue-24)/20:0)+gauss()*.05).toFixed(1);t.air=+(2.1+gauss()*.08).toFixed(1);
+  t.hist.push([zc,t.co.x]);if(t.hist.length>60)t.hist.shift();
+  cntStep(silent);
+  if(silent)return;
+  if(!t.closed&&t.co.x>100){t.closed=true;logA("crit",`Tunnel T1 gesperrt: CO ${fmt(t.co.x)} ppm über Grenzwert 100 ppm.`,"T1");
+    if(S.assigned==="B"&&S.cnt.own){S.pendingReplan=true;logA("warn","M-AV 482 ist noch im Tunnel T1. Die Umplanung erfolgt nach der Ausfahrt.","T1");refresh()}
+    else if(S.assigned==="B"){const b=best();if(b)assign(b.r,"auto");else refresh()}else refresh()}
+  else if(!t.alarm&&t.closed&&t.co.x<40){t.closed=false;logA("ok","Tunnel T1 wieder frei: CO-Werte im Normalbereich.","T1");refresh()}
+  else renderRoutes();
+  renderAlerts();renderT1();renderCount();drawCountBadge();if(REDUCED)posTrucks();drvTick();$("clock").textContent="Live · "+now();
+  if(S.sel==="T1"||S.sel==="T2"||(S.sel&&S.sel[0]==="K"))info();
+}
+function renderT1(){
+  const t=S.t1,co=t.co.x,lv=co>100?"crit":co>70?"warn":"";
+  $("t1card").innerHTML=`<div class="mhead"><div><h3>Tunnel T1 · Tunnelsensoren</h3><span class="muted" style="font-size:12px">Straßentunnel, 3.000 m · 4 Messquerschnitte</span></div>
+   <span class="pill ${t.closed?"crit":lv||"ok"}"><i></i>${t.closed?"Gesperrt":lv==="warn"?"Erhöhte Werte":"Normalbetrieb"}</span></div>
+   <div class="kpis"><div class="kpi"><span>CO (gefiltert)</span><b class="${lv}">${fmt(co)} ppm</b></div>
+   <div class="kpi"><span>Sichttrübe</span><b class="${t.vis.x>.009?"crit":""}">${fmt(t.vis.x*1000,1)}<small style="font-size:11px">·10⁻³/m</small></b></div>
+   <div class="kpi"><span>Temperatur</span><b>${fmt(t.temp,1)} °C</b></div><div class="kpi"><span>Luftstrom</span><b>${fmt(t.air,1)} m/s</b></div></div>
+   <canvas id="cv1" aria-label="CO-Verlauf der letzten 60 Sekunden"></canvas>
+   <div class="legend"><span><i style="background:var(--muted);height:6px;width:6px;border-radius:50%"></i>Rohmessung</span><span><i style="background:var(--accent)"></i>Kalman-Schätzung</span><span><i style="background:var(--warn)"></i>Warnung 70 ppm</span><span><i style="background:var(--crit)"></i>Sperrung 100 ppm</span><span>letzte 60 s</span></div>`;
+  drawChart();
+}
+function drawChart(){
+  const c=$("cv1");if(!c)return;const dpr=devicePixelRatio||1,W=c.clientWidth,H=150;c.width=W*dpr;c.height=H*dpr;
+  const g=c.getContext("2d");g.scale(dpr,dpr);const cs=getComputedStyle(document.documentElement),col=n=>cs.getPropertyValue(n).trim();
+  const pad={l:34,r:8,t:8,b:16},max=180,y=v=>pad.t+(1-v/max)*(H-pad.t-pad.b),x=i=>pad.l+i/59*(W-pad.l-pad.r);
+  g.font="10px "+col("--mono").split(",")[0].replace(/"/g,"");g.fillStyle=col("--muted");g.strokeStyle=col("--line");g.lineWidth=1;
+  [0,50,100,150].forEach(v=>{g.beginPath();g.moveTo(pad.l,y(v));g.lineTo(W-pad.r,y(v));g.stroke();g.fillText(v,4,y(v)+3)});
+  [[70,"--warn"],[100,"--crit"]].forEach(([v,cn])=>{g.strokeStyle=col(cn);g.setLineDash([4,4]);g.beginPath();g.moveTo(pad.l,y(v));g.lineTo(W-pad.r,y(v));g.stroke();g.setLineDash([])});
+  const h=S.t1.hist,off=60-h.length;
+  g.fillStyle=col("--muted");h.forEach((p,i)=>{g.globalAlpha=.55;g.beginPath();g.arc(x(i+off),y(clamp(p[0],0,max)),2,0,7);g.fill()});g.globalAlpha=1;
+  g.strokeStyle=col("--accent");g.lineWidth=2.5;g.beginPath();h.forEach((p,i)=>{const X=x(i+off),Y=y(clamp(p[1],0,max));i?g.lineTo(X,Y):g.moveTo(X,Y)});g.stroke();
+  if(h.length){const p=h[h.length-1];g.fillStyle=col("--accent");g.beginPath();g.arc(x(59),y(clamp(p[1],0,max)),4,0,7);g.fill()}
+}
+/* ---------- Canvas & Quellen ---------- */
+const CANVAS=[
+ ["Value Propositions",["Route Re-Planning, zeit-, geld- und treibstoffsparend <span>→ Routenplaner + Ersparnis</span>","Transport-Risiken wahrnehmen (schmale Wege, Kuppen) <span>→ Engstellen, Fahrzeugprofil</span>","Sicherheitsfaktor mit Kalman-Filter <span>→ Score mit ±, Rechenweg offen</span>","Alle Quellen an einem Ort (interaktive Karte) <span>→ 9 Ebenen, 10 Quellen</span>","Label A–E, Konfidenz, schwächstes Glied <span>→ aus ARGUS (Prof.)</span>","Gegenlicht-Planer, Sorgfaltsnachweis <span>→ aus ARGUS (Prof.)</span>","Durchfahrtswächter: Meldung, wenn ein LKW im Tunnel überfällig ist <span>→ Fahrzeugzählung T1</span>","Fahrer-App: Gefahren melden, SOS, automatische Sicherheitsabfrage, Notfallpass <span>→ #fahrer</span>"]],
+ ["Key Activities",["Warnbenachrichtigung <span>→ Meldungen</span>","Schadensvorbeugung <span>→ Zustandsnote + Lastprüfung</span>","Route Re-Planning <span>→ automatisch bei Tunnelsperrung</span>"]],
+ ["Key Partners",["BASt (noch kontaktieren!) <span>→ Brückenstatistik ist schon offen verfügbar</span>","Tief-/Hochbauamt <span>→ Engstellen, Brücken</span>","Spezialtiefbau (Tunnelbau) <span>→ Personenortung später als Zusatzmodul</span>","Tunnelbetreiber <span>→ Zähldaten der Portale</span>","Logistikfirmen <span>→ LKW-Ortung, Pilotkunden</span>","Versicherer <span>→ Nachweis der Routenwahl (Idee)</span>"]],
+ ["Key Resources",["Claude.ai","Mentor: Herr Spannaus","Offene Daten: BASt, Unfallatlas, Autobahn-API, DWD"]]
+];
+const OPEN=[
+ ["Customer Segments","Flottenmanager und Disponenten in Bayern. Dazu Spezialtiefbau, Tunnelbetreiber, Schwertransporte."],
+ ["Revenue Streams","Aus ARGUS: 6 € je Fahrzeug und Monat (mind. 49 €), Einzelbericht 149 €, Schwertransport-Bericht 299 €."],
+ ["Channels","Pilot mit drei Stammrouten, später Schnittstelle zur Tourenplanung."],
+ ["Customer Relationships","Pilotprojekt, wöchentliche Meldung zu Stammrouten (geplant)."],
+ ["Cost Structure","Hosting, Routing-Server, Datenpflege, Zugang zu Zähldaten der Tunnelbetreiber, Entwicklung."]
+];
+const SOURCES=[
+ ["BASt-Brückenstatistik","Zustandsnoten der Teilbauwerke an Bundesfernstraßen · CC BY 4.0, offen verfügbar","https://www.bast.de"],
+ ["Unfallatlas der Statistischen Ämter","Unfälle mit Personenschaden, auch mit LKW-Beteiligung · dl-de/by-2-0","https://unfallatlas.statistikportal.de"],
+ ["Autobahn-API (Autobahn GmbH)","Baustellen und Sperrungen auf Autobahnen, live","https://verkehr.autobahn.de"],
+ ["DWD Wetterwarnungen","Glätte, Nebel, Sturm","https://maps.dwd.de"],
+ ["Bayerische Vermessungsverwaltung (BayernAtlas)","Basiskarte, Gelände, Luftbild · CC BY 4.0","https://www.geodaten.bayern.de"],
+ ["BAYSIS","Durchfahrtshöhen, Engstellen, Kuppen","https://www.baysis.bayern.de"],
+ ["DIPUL (DFS)","Geozonen für Drohnen","https://maptool-dipul.dfs.de"],
+ ["OpenStreetMap über OSRM und Photon","Routing und Ortssuche · ODbL","https://www.openstreetmap.org/copyright"],
+ ["Tunnelleitzentrale / Betreiber","Tunnelsensoren: CO, Sichttrübe, Temperatur, Luftstrom",null],
+ ["Verkehrsdetektion an Tunnelportalen","Fahrzeugzählung über Zählschleifen, Radar oder Kameras des Betreibers",null],
+ ["Telematik der Logistikfirmen","LKW-Ortung, z. B. über den rFMS-Standard",null]
+];
+$("blocks").innerHTML=CANVAS.map(([k,l])=>`<div class="blk"><span class="k">${k}</span><ul>${l.map(x=>`<li>${x}</li>`).join("")}</ul></div>`).join("")+
+ OPEN.map(([k,q])=>`<div class="blk open"><span class="k">${k} · Vorschlag</span><span style="font-size:13px">${q}</span></div>`).join("");
+$("sources").innerHTML=SOURCES.map(([n,w,u])=>`<div><b>${n}</b><small>${w}</small>${u?`<a href="${u}" target="_blank" rel="noopener">${u.replace("https://","")}</a>`:""}</div>`).join("");
+
+/* ---------- Geschäftsmodell ---------- */
+const STATUS=[
+ ["Route bewerten: Label A–E, Konfidenz, schwächstes Glied","ok","im Prototyp"],
+ ["Fahrzeugprofil prüfen: Höhe, Gewicht, Länge, Energie","ok","im Prototyp"],
+ ["Routen vergleichen und automatisch neu planen","ok","im Prototyp"],
+ ["Gegenlicht-Planer","ok","im Prototyp"],
+ ["Tunnelsensoren, Fahrzeugzählung, Durchfahrtswächter","ok","simuliert"],
+ ["Streckenbericht als Sorgfaltsnachweis","ok","im Prototyp"],
+ ["Fahrer-App: Melden, SOS, Sicherheitsabfrage, Notfallpass","ok","im Prototyp"],
+ ["Fahrer-Karte nur im Stand, Pausenkarte, Notrufsäulen","ok","im Prototyp"],
+ ["Flottenzentrale: Notfälle, Ersthelfer in der Nähe","ok","im Prototyp"],
+ ["Echte Sensoren im Handy: Aufprall, Stillstand, GPS","warn","nächster Schritt"],
+ ["Echte Daten: BASt, Unfallatlas, Autobahn-API, DWD","warn","nächster Schritt"],
+ ["Echtes Routing für ganz Bayern","warn","nächster Schritt"],
+ ["3D-Fahrerblick an kritischen Stellen","acc","bei ARGUS, noch nicht übernommen"],
+ ["Stammrouten überwachen, wöchentliche Meldung","","geplant"],
+ ["Schnittstelle zur Tourenplanung","","geplant"]
+];
+const LIMITS=["Alle Daten sind Demo-Daten. Die Karte ist schematisch, es gibt nur drei feste Routen.","Fahrzeiten, Strecken und Umwege sind geschätzt, nicht berechnet.","Verbrauchs-, Risiko- und Preisannahmen sind nicht am Markt geprüft.","Gegenlicht ohne Gelände, Bäume und Häuser.","Aufprall und Stillstand werden in der Demo per Knopf simuliert. Die App ruft nie selbst den Notruf an.","Fahrzeugzählung und Durchfahrtswächter laufen im Zeitraffer (×10). Echte Zähldaten müssten vom Tunnelbetreiber kommen.","Der Score ersetzt keine Verkehrsregel, keine behördliche Anordnung und keine LKW-Genehmigung.","Ob ArgusVisio Unfälle oder Umwege senkt, ist nicht gemessen. Das soll ein Pilot zeigen."];
+function renderBiz(){
+  $("roi").innerHTML=`<h2>Geschäftsmodell · Rechenbeispiel</h2>
+   <p class="muted" style="margin:0;font-size:12.5px">Preisvorschlag aus dem ARGUS-Prototyp: 6 € je Fahrzeug und Monat, mindestens 49 €. Bei Jahreszahlung zwei Monate frei. Nicht am Markt geprüft.</p>
+   <div class="roiin">
+    <label for="r-n">Fahrzeuge<input id="r-n" data-r="n" type="number" min="1" step="1" value="${S.roi.n}"></label>
+    <label for="r-c">Vermiedene Umwege je Fahrzeug und Jahr<input id="r-c" data-r="cases" type="number" min="0" step="0.5" value="${S.roi.cases}"></label>
+    <label for="r-k">Umweg je Fall (km)<input id="r-k" data-r="km" type="number" min="0" step="1" value="${S.roi.km}"></label>
+    <label for="r-e">Vollkosten je km (€)<input id="r-e" data-r="ckm" type="number" min="0" step="0.1" value="${S.roi.ckm}"></label>
+   </div>
+   <div class="roiout" id="roi-out"></div>
+   <p class="muted" style="margin:0;font-size:11.5px">26 km entsprechen dem Wenden vor der Unterführung auf Route A. Kilometerkosten sind eine Annahme, setzt eure eigenen Werte ein. Vermiedene Schäden sind nicht eingerechnet.<br>Ohne Abo: Streckenbericht 149 €, Schwertransport mit Alternativrouten 299 €, Pilot mit drei Stammrouten 149 €.</p>`;
+  $("roi").querySelectorAll("input[data-r]").forEach(i=>i.addEventListener("input",()=>{const n=parseFloat(i.value);if(!isNaN(n)){S.roi[i.dataset.r]=n;renderROI()}}));
+  $("status").innerHTML=`<thead><tr><th>Funktion</th><th>Stand</th></tr></thead><tbody>${STATUS.map(([f,l,s])=>`<tr><td style="white-space:normal">${f}</td><td><span class="pill ${l}"><i></i>${s}</span></td></tr>`).join("")}</tbody>`;
+  $("limits").innerHTML=LIMITS.map(x=>`<li>${x}</li>`).join("");
+  renderROI();
+}
+function renderROI(){const o=S.roi,mon=Math.max(49,6*o.n),yr=mon*12,yrA=mon*10,save=o.n*o.cases*o.km*o.ckm,per=o.km*o.ckm,need=per>0?Math.ceil(yr/per):0;
+  $("roi-out").innerHTML=`<div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr))"><div class="kpi"><span>Abo im Jahr</span><b>${fmt(yr)} €</b></div><div class="kpi"><span>bei Jahreszahlung</span><b>${fmt(yrA)} €</b></div><div class="kpi"><span>vermiedene Umwege</span><b class="${save>=yr?"":"warn"}">${fmt(save)} €</b></div></div>
+   <div><b>${need}</b> vermiedene Umwege im Jahr decken das Abo. Das sind ${fmt(need/Math.max(1,o.n),1)} je Fahrzeug.</div>`}
+
+/* ---------- Ebenen ---------- */
+$("layers").innerHTML=LAYERS.map(([k,n,s,c])=>`<label class="layer" for="ly-${k}"><input type="checkbox" id="ly-${k}" checked><span><b>${n}</b><small>${s}</small></span><span class="sw" style="background:${c}"></span></label>`).join("");
+LAYERS.forEach(([k])=>$("ly-"+k).onchange=e=>{S.layers[k]=e.target.checked?1:0;applyLayers()});
+
+/* ---------- Ereignisse ---------- */
+$("map").innerHTML=baseSVG();
+$("map").addEventListener("click",e=>{const o=e.target.closest("[data-obj]");S.sel=o?o.dataset.obj:null;drawDynamic();drawTrucks();info()});
+$("replan").onclick=()=>{const b=best();if(b&&b.r!==S.assigned){assign(b.r,"replan");toast("Route "+b.r+" zugewiesen")}};
+$("v-temp").addEventListener("input",e=>{S.veh.temp=+e.target.value;refresh()});
+$("v-wx").addEventListener("change",e=>{S.wx=e.target.value;const L={glatt:"Glätte",nebel:"Nebel",sturm:"Sturmböen"}[S.wx];
+  logA(L?"warn":"ok",L?`DWD-Warnung für die Region: ${L}.`:"DWD: keine Wetterwarnung mehr.",null);refresh()});
+function inp(k,label,step){return `<label for="v-${k}">${label}<input id="v-${k}" data-k="${k}" type="number" step="${step}" min="0" value="${S.veh[k]}"></label>`}
+function renderVehicle(){
+  const v=S.veh,ev=v.drive==="ev";
+  $("presets").innerHTML=Object.entries(PRESETS).map(([k,p])=>`<button type="button" data-p="${k}" aria-pressed="${S.preset===k}">${p.name}</button>`).join("");
+  $("vform").innerHTML=`<div style="display:grid;gap:10px">
+   <div class="vsub">Maße</div><div class="veh">${inp("h","Höhe (m)",.05)}${inp("b","Breite (m)",.05)}${inp("l","Länge (m)",.1)}</div>
+   <div class="vsub">Gewicht</div><div class="veh">${inp("leer","Leergewicht (t)",.1)}${inp("lad","Ladung (t)",.1)}${inp("zgg","Zul. Gesamt (t)",.5)}</div>
+   <div class="vsub">Antrieb &amp; Energie</div>
+   <div class="seg3" id="drive"><button type="button" data-d="diesel" aria-pressed="${!ev}">Diesel</button><button type="button" data-d="ev" aria-pressed="${ev}">Elektro</button></div>
+   <div class="veh">${ev?inp("cap","Akku (kWh)",10)+inp("lvl","Ladestand (%)",1)+inp("use","kWh/100 km",1):inp("cap","Tank (l)",10)+inp("lvl","Tankinhalt (l)",5)+inp("use","l/100 km",.5)}</div>
+   <div class="muted" style="font-size:11.5px">Gesamtgewicht <b class="mono" id="o-w">${fmt(v.w,1)} t</b> · Verbrauch gilt voll beladen bei mildem Wetter</div></div>`;
+  $("v-temp").value=v.temp;
+  $("presets").querySelectorAll("button").forEach(b=>b.onclick=()=>{S.preset=b.dataset.p;S.veh={...PRESETS[b.dataset.p],temp:S.veh.temp};S.veh.w=S.veh.leer+S.veh.lad;renderVehicle();refresh()});
+  $("drive").querySelectorAll("button").forEach(b=>b.onclick=()=>{const d=b.dataset.d,small=S.veh.zgg<=7.5;if(d===S.veh.drive)return;
+    Object.assign(S.veh,d==="ev"?{drive:"ev",cap:small?110:540,lvl:40,use:small?28:120}:{drive:"diesel",cap:small?75:600,lvl:small?50:180,use:small?11:32});
+    S.preset=null;renderVehicle();refresh()});
+  $("vform").querySelectorAll("input[data-k]").forEach(i=>i.addEventListener("input",()=>{const n=parseFloat(i.value);if(isNaN(n))return;
+    S.veh[i.dataset.k]=n;S.veh.w=S.veh.leer+S.veh.lad;$("o-w").textContent=fmt(S.veh.w,1)+" t";
+    if(S.preset){S.preset=null;$("presets").querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed","false"))}refresh()}));
+}
+function renderEnergy(){
+  const v=S.veh,r=S.assigned,e=energy(r),u=e.unit;
+  $("o-temp").textContent=fmt(v.temp)+" °C";
+  const pct=n=>(n>=1?"+":"−")+fmt(Math.abs(n-1)*100)+" %";
+  const share=clamp(e.need/Math.max(e.have,.001),0,1),left=e.have-e.need;
+  setHTML("energy",`<div class="ln"><span><b>Verbrauch auf Route ${r}</b> · ${ROUTES[r].km} km</span><span></span></div>
+   <div class="ln"><span>Grundverbrauch voll beladen</span><span>${fmt(v.use,1)} ${u}/100 km</span></div>
+   <div class="ln"><span>Beladung ${fmt(v.w,1)} von ${fmt(v.zgg,1)} t</span><span>${pct(e.fLoad)}</span></div>
+   <div class="ln"><span>Temperatur ${fmt(v.temp)} °C${e.ev?" (Heizung, Akku)":""}</span><span>${pct(e.fT)}</span></div>
+   <div class="ln"><span>Streckenprofil (Steigungen)</span><span>${pct(e.fR)}</span></div>
+   <div class="ln tot"><span>Bedarf · ${fmt(e.per,1)} ${u}/100 km</span><span>${fmt(e.need)} ${u}</span></div>
+   <div class="ln"><span>Nutzbar (ohne ${e.ev?15:10} % Reserve)</span><span>${fmt(e.avail)} ${u}</span></div>
+   <div class="bar2" aria-hidden="true"><i style="width:${(share*100).toFixed(1)}%;background:var(--${e.stop?"crit":e.ratio>.85?"warn":"ok"})"></i></div>
+   <div class="ln"><span class="muted">${e.stop?`${e.ev?"Ladestopp":"Tankstopp"} wird eingeplant: +${e.stopMin} min`:`Reicht. Bei Ankunft noch ${fmt(left)} ${u} (${fmt(left/v.cap*100)} %)`}</span><span>${fmt(e.eur)} €</span></div>`);
+}
+$("rep-copy").onclick=()=>{const txt=reportText(),pre=$("rep-text");
+  const sel=()=>{const rg=document.createRange();rg.selectNodeContents(pre);const s=getSelection();s.removeAllRanges();s.addRange(rg);toast("Kopieren nicht erlaubt. Text ist markiert, bitte selbst kopieren.")};
+  try{navigator.clipboard.writeText(txt).then(()=>toast("Streckenbericht kopiert"),sel)}catch(e){sel()}};
+$("d-alarm").onclick=()=>{if(S.t1.alarm)return;S.t1.alarm=true;logA("warn","Tunnel T1: CO-Anstieg gemessen (Demo-Szenario Fahrzeugbrand).","T1");toast("CO steigt im Tunnel T1");refresh()};
+$("d-stuck").onclick=()=>{if(S.assigned!=="B"||!evalRoute("B").ok){toast("Dafür muss M-AV 482 auf Route B durch Tunnel T1 fahren");return}
+  if(S.cnt.own)S.cnt.own.stuck=true;else enterOwn(true);toast("M-AV 482 bleibt im Tunnel T1 stehen");renderAlerts();renderCount();drawCountBadge();posTrucks()};
+$("d-panne").onclick=()=>{const v=[...S.cnt.veh].reverse().find(x=>!x.own&&!x.stuck);if(!v)return;v.stuck=true;toast("Ein fremdes Fahrzeug bleibt im Tunnel liegen")};
+$("d-reset").onclick=()=>{S.t1.alarm=false;TRUCKS.forEach(t=>t.halt=false);S.me.checkin=null;S.me.out=null;S.me.paused=false;S.cnt.veh.forEach(v=>v.stuck=false);toast("Tunnel T1: Werte normalisieren sich");refresh()};
+window.addEventListener("resize",drawChart);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change",()=>drawChart());
+
+/* ---------- Fahrer-App & gemeinsame Ereignisse ---------- */
+const KM_PX=.13;
+const DRIVERS={"M-AV 482":"Fahrer:in A","RO-LG 117":"Fahrer:in B","WM-TR 905":"Fahrer:in C","GAP-K 33":"Fahrer:in D"};
+const IC={
+ unfall:'<path d="M12 3 2 20h20z"/><path d="M12 9v5M12 17v.5"/>',
+ panne:'<path d="M15 4a4 4 0 0 0 5 5l-9 9-3-3z"/><path d="M5 19l2-2"/>',
+ stau:'<rect x="2" y="9" width="8" height="6" rx="1.5"/><rect x="14" y="9" width="8" height="6" rx="1.5"/><path d="M4 17v1.5M8 17v1.5M16 17v1.5M20 17v1.5"/>',
+ glatt:'<path d="M12 3v18M4.5 7.5l15 9M19.5 7.5l-15 9"/>',
+ gegenstand:'<path d="M2 20h20"/><path d="M7 17V10h10v7"/><path d="M7 10l5-4 5 4"/>',
+ rauch:'<path d="M8 20c-3 0-4-3-2.5-5S9 12 10 13c0-3 4-4.5 5.5-1.5 2.5-1 4.5 1.5 3.5 4S17 20 14 20z"/><path d="M10 6c1-1 1-2 0-3M14 7c1-1 1-2 0-3"/>',
+ gesperrt:'<rect x="2" y="8" width="20" height="5" rx="1"/><path d="M6 8l3 5M11 8l3 5M16 8l3 5M5 13v7M19 13v7"/>',
+ sonst:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
+ nav:'<path d="M12 2 4 21l8-4 8 4z"/>',
+ sos:'<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16v.5"/>',
+ pass:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M12 8v6M9 11h6"/>',
+ bridge:'<path d="M2 15h20M4 15V11M20 15V11M2 11c4-5 16-5 20 0M8 15v-3M12 15v-4M16 15v-3"/>',
+ tunnel:'<path d="M3 20V12a9 9 0 0 1 18 0v8"/><path d="M8 20v-6a4 4 0 0 1 8 0v6"/>'
+};
+const RKIND={
+ unfall:{n:"Unfall",ic:IC.unfall,lvl:"crit",cap:54,tb:true},
+ panne:{n:"Panne",ic:IC.panne,lvl:"warn"},
+ stau:{n:"Stau",ic:IC.stau,lvl:"warn"},
+ glatt:{n:"Glätte",ic:IC.glatt,lvl:"warn",cap:54},
+ gegenstand:{n:"Gegenstand auf der Fahrbahn",ic:IC.gegenstand,lvl:"warn",cap:54},
+ rauch:{n:"Rauch oder Feuer",ic:IC.rauch,lvl:"crit",cap:39,tb:true},
+ gesperrt:{n:"Fahrbahn gesperrt",ic:IC.gesperrt,lvl:"crit",cap:39,tb:true},
+ sonst:{n:"Sonstige Gefahr",ic:IC.sonst,lvl:"warn"}
+};
+const SKIND={notfall:{n:"Notfall"},unfall:{n:"Unfall mit Verletzten"},medizin:{n:"Medizinischer Notfall"},brand:{n:"Fahrzeugbrand"},bedrohung:{n:"Bedrohung oder Überfall"}};
+const REASON={
+ tunnel:["Sie sind seit über 5 Minuten im Tunnel T1.","seit über 5 min ohne Signal im Tunnel, keine Antwort"],
+ stand:["Ihr Fahrzeug steht seit 10 Minuten außerhalb eines Parkplatzes.","steht seit über 10 min, keine Antwort"],
+ crash:["Starke Verzögerung erkannt. Möglicher Aufprall.","möglicher Aufprall, keine Antwort"],
+ out:["Ihre Aussteigen-Zeit ist abgelaufen.","nach dem Aussteigen nicht zurückgemeldet"]
+};
+const STLBL={offen:"offen",uebernommen:"übernommen","112":"112 verständigt",erledigt:"erledigt"};
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtH=m=>`${Math.floor(m/60)}:${pad2(Math.floor(m%60))}`;
+const MED_KEY="argusvisio-notfallpass",PLATE_KEY="argusvisio-fahrzeug";
+const MED_EX={blut:"A+",vor:"Diabetes Typ 2, Bluthochdruck",med:"Metformin, Ramipril",all:"Penicillin",kontakt:"",sprache:"Deutsch, Türkisch",share:true,example:true};
+function loadLS(k,d){try{const v=JSON.parse(localStorage.getItem(k));return v??d}catch(e){return d}}
+function saveLS(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+S.events={};S.seen=new Set();S.live=false;S.dbLoaded=false;S.autoReason=null;
+S.me={plate:loadLS(PLATE_KEY,"M-AV 482"),tab:"fahrt",checkin:null,out:null,sosId:null,drawer:false,banners:[],rkind:null,lenk:185,stand:0,standPrompted:false,paused:false,pauseStart:0,holding:false};
+if(!TRUCKS.some(t=>t.id===S.me.plate))S.me.plate="M-AV 482";
+S.med=loadLS(MED_KEY,{...MED_EX});
+let DB=null,ME=null,AC=null;
+
+const myTruck=()=>TRUCKS.find(t=>t.id===S.me.plate)||TRUCKS[0];
+function posOf(t){const own=t.own&&S.cnt.own,r=own?"B":t.route(),f=own?BLEN.tun:(((t.f%1)+1)%1),p=pointAt(pts(r),f);return {x:p.x,y:p.y,seg:p.seg,route:r,inTunnel:r==="B"&&p.seg===7,frac:f}}
+function road(r,seg){if(r==="B")return seg<=6?"A95 Richtung Garmisch-Partenkirchen":seg===7?"Tunnel T1 (B2)":"B2 Richtung Garmisch-Partenkirchen";
+  if(r==="A")return seg<=2?"A95 Richtung Garmisch-Partenkirchen":"Staatsstraße Richtung Garmisch-Partenkirchen";return seg<=4?"Staatsstraße Richtung Weilheim":"B2 Richtung Garmisch-Partenkirchen"}
+function locText(p){const lat=48.14-(p.y-80)*.001111,lon=11.58+(p.x-760)*.0015;return `${road(p.route,p.seg)}, ca. km ${Math.round(p.frac*ROUTES[p.route].km)} der Tour · ${fmt(lat,4)}° N, ${fmt(lon,4)}° O`}
+function nearbyOf(x,y,except){return TRUCKS.filter(t=>t.id!==except).map(t=>{const q=posOf(t);return {plate:t.id,km:Math.round(Math.hypot(q.x-x,q.y-y)*KM_PX*10)/10}}).filter(n=>n.km<=15).sort((a,b)=>a.km-b.km)}
+function activeReports(){const n=Date.now();return Object.values(S.events).filter(e=>e.type==="report"&&e.status!=="erledigt"&&n-e.ts<3600e3)}
+function openIncidents(){const n=Date.now();return Object.values(S.events).filter(e=>(e.type==="sos"||e.type==="noresp")&&e.status!=="erledigt"&&n-e.ts<6*3600e3).sort((a,b)=>b.ts-a.ts)}
+const sosActive=()=>{const e=S.events[S.me.sosId];return !!(e&&e.status!=="erledigt")};
+const newId=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+function medSummary(){const m=S.med;const p=[m.blut&&"Blutgruppe "+m.blut,m.vor,m.med&&"Medikamente: "+m.med,m.all&&"Allergie: "+m.all,m.kontakt&&"Kontakt: "+m.kontakt,m.sprache&&"Spricht: "+m.sprache].filter(Boolean);return p.length?p.join(" · "):null}
+function evBase(type){const t=myTruck(),p=posOf(t);return {id:newId(),type,plate:t.id,x:+p.x.toFixed(1),y:+p.y.toFixed(1),route:p.route,inTunnel:p.inTunnel,loc:locText(p),nearby:nearbyOf(p.x,p.y,t.id),status:"offen",by:ME,ts:Date.now()}}
+async function publishEvent(ev){S.events[ev.id]=ev;handleNew(ev);refreshEvents();
+  if(DB){try{await DB.collection("events").doc(ev.id).set(ev)}catch(e){toast("Nicht live gesendet ("+(e&&e.code||"Fehler")+"). Die Meldung gilt nur in diesem Fenster.")}}}
+async function updateEvent(id,patch){const e=S.events[id];if(!e)return;const old={...e};Object.assign(e,patch);handleStatus(e,old);refreshEvents();
+  if(DB){try{await DB.collection("events").doc(id).update(patch)}catch(err){toast("Status nicht live gespeichert")}}}
+function beep(){try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();const o=AC.createOscillator(),g=AC.createGain();o.frequency.value=880;g.gain.value=.07;o.connect(g);g.connect(AC.destination);o.start();o.stop(AC.currentTime+.25)}catch(e){}}
+function pushBanner(b){b.id=newId();b.ts=Date.now();S.me.banners.unshift(b);S.me.banners=S.me.banners.slice(0,4);beep();renderDrv()}
+function handleNew(e){if(S.seen.has(e.id))return;S.seen.add(e.id);
+  const mine=e.plate===S.me.plate,near=(e.nearby||[]).find(n=>n.plate===S.me.plate),P=esc(e.plate);
+  if(e.type==="report"){const K=RKIND[e.kind]||RKIND.sonst;
+    logA(K.lvl,`Fahrermeldung ${P}: ${K.n}${e.inTunnel?" im Tunnel T1":""}. Weitergeleitet an ${(e.nearby||[]).length} Fahrer in der Nähe.`,e.id);
+    if(!mine&&near)pushBanner({kind:"warn",text:`${K.n}${e.inTunnel?" im Tunnel T1":""}, gemeldet von ${e.plate}, ${fmt(+near.km||0,1)} km entfernt.`});
+    if(!evalRoute(S.assigned).ok&&!S.cnt.own){const b=best();if(b){S.autoReason="Fahrermeldung "+K.n;assign(b.r,"auto");S.autoReason=null}}}
+  else if(e.type==="sos"||e.type==="noresp"){
+    const t=e.type==="sos"?`SOS von ${P}: ${(SKIND[e.kind]||SKIND.notfall).n}.`:`${P} antwortet nicht: ${esc(e.reasonText)}.`;
+    logA("crit",`${t} Standort: ${esc(e.loc)}. Empfehlung: Fahrer anrufen, bei Bedarf Notruf 112.`,e.id);
+    if(!mine&&near)pushBanner({kind:"help",ev:e.id,text:`${e.type==="sos"?"Notfall":"Fahrer antwortet nicht"} bei ${e.plate}, ${fmt(+near.km||0,1)} km entfernt. Können Sie helfen?`});
+    if(!document.body.classList.contains("mode-driver"))toast(e.type==="sos"?"SOS von "+e.plate:e.plate+" antwortet nicht")}
+  else if(e.type==="helper"){logA("ok",`${P} hilft bei ${esc(e.refPlate)} (${fmt(+e.km||0,1)} km entfernt).`,e.ref);
+    if(e.refPlate===S.me.plate&&!mine)pushBanner({kind:"info",text:`${e.plate} ist auf dem Weg zu Ihnen (${fmt(+e.km||0,1)} km).`})}
+  else if(e.type==="ok")logA("ok",`${P}: Fahrer meldet „alles in Ordnung“ (${esc(e.reasonText)}).`,null);
+}
+function handleStatus(e,old){if(!old||old.status===e.status)return;
+  const L={uebernommen:"Die Flottenleitung hat Ihren Notfall übernommen.","112":"Die Flottenleitung hat den Notruf 112 verständigt.",erledigt:"Der Einsatz ist abgeschlossen."};
+  if((e.type==="sos"||e.type==="noresp")&&e.plate===S.me.plate&&L[e.status])pushBanner({kind:"info",text:L[e.status]});
+  logA(e.status==="erledigt"?"ok":"info",`${esc(e.plate)}: ${e.type==="report"?"Meldung":"Einsatz"} ${STLBL[e.status]||esc(e.status)}.`,e.id);
+  if(e.status==="erledigt"&&e.id===S.me.sosId)S.me.sosId=null}
+function refreshEvents(){refresh();renderDrv();renderFleetList();renderIncidents()}
+
+/* Sicherheitsabfrage, SOS */
+function openCheckin(reason,sec){if(S.me.checkin||sosActive())return;S.me.checkin={reason,deadline:Date.now()+sec*1000};beep();
+  if(!document.body.classList.contains("mode-driver")&&!S.me.drawer){S.me.drawer=true;applyView()}renderDrv(true)}
+function checkinOk(){const c=S.me.checkin;if(!c)return;S.me.checkin=null;const t=myTruck();
+  if(c.reason==="tunnel"&&t.own&&S.cnt.own){const o=S.cnt.own;o.ack=true;o.stuck=false;o.dur=Math.min(o.dur,(S.cnt.simT-o.t0)+30)}
+  if(c.reason==="stand"||c.reason==="crash")S.me.standPrompted=true;
+  const ev=evBase("ok");ev.status="erledigt";ev.reason=c.reason;ev.reasonText=c.reason==="tunnel"?"im Tunnel, Antwort wird bei Signal übertragen":REASON[c.reason][0].replace(/\.$/,"");
+  publishEvent(ev);toast("Danke. Die Flottenleitung ist informiert.")}
+function checkinTimeout(){const c=S.me.checkin;S.me.checkin=null;const ev=evBase("noresp");ev.reason=c.reason;ev.reasonText=REASON[c.reason][1];ev.med=S.med.share?medSummary():null;
+  S.me.sosId=ev.id;S.me.tab="sos";publishEvent(ev)}
+function triggerSOS(kind){if(sosActive()){updateEvent(S.me.sosId,{kind});return}
+  const ev=evBase("sos");ev.kind=kind;ev.med=S.med.share?medSummary():null;S.me.sosId=ev.id;S.me.tab="sos";S.me.checkin=null;publishEvent(ev)}
+function drvTick(){const t=myTruck(),me=S.me,stuck=t.own&&S.cnt.own&&S.cnt.own.stuck,moving=!t.halt&&!stuck;
+  if(moving&&!me.paused)me.lenk+=TX/60;
+  if(t.halt&&!me.paused&&!me.out&&!(t.own&&S.cnt.own)){me.stand+=TX;if(me.stand>=600&&!me.standPrompted)openCheckin("stand",30)}
+  else if(moving){me.stand=0;me.standPrompted=false}
+  if(me.out&&S.cnt.simT>=me.out.until){me.out=null;openCheckin("out",30)}
+  if(me.checkin&&Date.now()>=me.checkin.deadline)checkinTimeout();
+  me.banners=me.banners.filter(b=>b.kind==="help"||Date.now()-b.ts<180e3);
+  renderDrv();renderFleetList();renderIncidents()}
+
+/* Fahrer-App: Inhalte */
+function upcoming(t,p){const r=p.route,P=pts(r),L=[],cum=[0];let tot=0;
+  for(let i=0;i<P.length-1;i++){const l=Math.hypot(P[i+1][0]-P[i][0],P[i+1][1]-P[i][1]);L.push(l);tot+=l;cum.push(tot)}
+  const proj=(x,y)=>{let bd=1e9,al=0;for(let i=0;i<L.length;i++){const ax=P[i][0],ay=P[i][1],dx=P[i+1][0]-ax,dy=P[i+1][1]-ay,u=clamp(((x-ax)*dx+(y-ay)*dy)/(dx*dx+dy*dy),0,1),dd=Math.hypot(ax+dx*u-x,ay+dy*u-y);if(dd<bd){bd=dd;al=cum[i]+u*L[i]}}return {al,d:bd}};
+  const here=p.frac*tot,kpp=ROUTES[r].km/tot,v=S.veh,out=[];
+  const add=(at,n,d,lvl,ic)=>{const q=proj(at[0],at[1]);if(q.d>25)return;const ah=q.al-here;if(ah<-2)return;out.push({km:Math.max(0,ah*kpp),n,d,lvl,ic})};
+  BR.filter(b=>b.routes.includes(r)).forEach(b=>{const over=b.limit&&v.w>b.limit;add(b.at,"Brücke "+b.name,b.limit?`Lastgrenze ${b.limit} t${over?", Fahrzeug zu schwer":""}, Note ${fmt(b.note,1)}`:`Zustandsnote ${fmt(b.note,1)} (${gradeTxt(b.note)})`,over?"crit":gradeLvl(b.note),IC.bridge)});
+  HZ.filter(h=>h.route===r).forEach(h=>add(h.at,h.name,h.kind==="height"?`Durchfahrtshöhe ${fmt(h.clear,2)} m${v.h>h.clear?", Fahrzeug zu hoch":""}`:h.txt,h.kind==="height"&&v.h>h.clear?"crit":"warn",IC.unfall));
+  WORKS.filter(w=>w.routes.includes(r)).forEach(w=>add(w.at,w.name,w.maxW&&v.b>w.maxW?`Linker Streifen nur bis ${fmt(w.maxW,2)} m: rechts bleiben`:w.txt,"warn",IC.gesperrt));
+  ACC.filter(a=>a.routes.includes(r)&&a.n>=10).forEach(a=>add(a.at,"Unfallschwerpunkt",a.txt,"warn",IC.unfall));
+  if(r==="B")add(on("T1a","T1b",.5),"Tunnel T1",S.t1.closed?"Gesperrt":"3.000 m, Durchfahrtswächter aktiv",S.t1.closed?"crit":"acc",IC.tunnel);
+  activeReports().filter(e=>e.route===r&&e.plate!==t.id).forEach(e=>{const K=RKIND[e.kind]||RKIND.sonst;add([+e.x||0,+e.y||0],K.n+" (Fahrermeldung)",`Gemeldet von ${e.plate} vor ${Math.max(1,Math.round((Date.now()-e.ts)/60000))} min`,K.lvl,K.ic)});
+  return out.sort((a,b)=>a.km-b.km).slice(0,5)}
+const tunnelHelp=()=>`<div class="dcard tun"><h4>Im Tunnel</h4><ul class="steps5"><li>Warnblinker an, Motor aus, Schlüssel stecken lassen.</li><li>Bei Rauch: sofort zu Fuß zum nächsten Notausgang (grün beschildert). Nicht wenden.</li><li>Notrufnischen etwa alle 150 m: von dort direkt zur Tunnelleitzentrale.</li></ul></div>`;
+const firstAid=()=>`<details class="dcard"><summary><b>Erste Hilfe: Schlaganfall erkennen (FAST)</b></summary><ul class="steps5"><li><b>F</b>ace: Hängt das Gesicht auf einer Seite?</li><li><b>A</b>rms: Beide Arme heben. Sinkt einer ab?</li><li><b>S</b>peech: Ist die Sprache verwaschen?</li><li><b>T</b>ime: Sofort 112 anrufen und die Uhrzeit merken.</li></ul></details>
+ <details class="dcard"><summary><b>Unfallstelle absichern</b></summary><ul class="steps5"><li>Warnblinker an, Warnweste anziehen.</li><li>Warndreieck: Autobahn ca. 200 m, Landstraße 100 m, innerorts 50 m vor der Stelle.</li><li>Hinter die Schutzplanke gehen.</li></ul></details>
+ <details class="dcard"><summary><b>Bewusstlos, keine normale Atmung</b></summary><ul class="steps5"><li>112 anrufen oder anrufen lassen.</li><li>Herzdruckmassage: Mitte der Brust, 5–6 cm tief, 100- bis 120-mal pro Minute.</li><li>Defibrillator (AED) holen lassen, falls vorhanden.</li><li>Normale Atmung: stabile Seitenlage.</li></ul></details>`;
+function bodyMelden(t,p){const near=activeReports().filter(e=>e.plate!==t.id&&Math.hypot((+e.x||0)-p.x,(+e.y||0)-p.y)*KM_PX<=15);
+  const mine=Object.values(S.events).filter(e=>e.type==="report"&&e.plate===t.id).sort((a,b)=>b.ts-a.ts).slice(0,3);
+  return `<div class="mini warnline">Nur im Stand oder durch Beifahrer bedienen. Das Handy am Steuer ist verboten (§ 23 StVO).</div>
+   <div class="dcard"><h4>Was ist los?</h4><div class="rgrid">${Object.entries(RKIND).map(([k,K])=>`<button class="rbtn" type="button" data-rk="${k}" aria-pressed="${S.me.rkind===k}"><svg viewBox="0 0 24 24">${K.ic}</svg><span>${K.n}</span></button>`).join("")}</div>
+    <div class="mini">Ort: meine Position · ${esc(locText(p))}</div>
+    <button class="btn primary" id="d-send" type="button" ${S.me.rkind?"":"disabled"}>Meldung senden</button>
+    <div class="mini">Geht an die Flottenleitung und an alle Fahrer im Umkreis von 15 km.</div></div>
+   <div class="dcard"><h4>Gefahren in Ihrer Nähe</h4>${near.length?near.map(e=>{const K=RKIND[e.kind]||RKIND.sonst;return `<div class="next"><span class="ic ${K.lvl}"><svg viewBox="0 0 24 24">${K.ic}</svg></span><span><b>${K.n}</b><small>von ${esc(e.plate)} vor ${Math.max(1,Math.round((Date.now()-e.ts)/60000))} min</small></span><span class="km">${fmt(Math.hypot((+e.x||0)-p.x,(+e.y||0)-p.y)*KM_PX,1)} km</span></div>`}).join(""):'<p class="mini">Keine Meldungen anderer Fahrer im Umkreis von 15 km.</p>'}</div>
+   ${mine.length?`<div class="dcard"><h4>Meine Meldungen</h4>${mine.map(e=>{const K=RKIND[e.kind]||RKIND.sonst;return `<div class="next"><span class="ic ${K.lvl}"><svg viewBox="0 0 24 24">${K.ic}</svg></span><span><b>${K.n}</b><small>an ${(e.nearby||[]).length} Fahrer in der Nähe</small></span><span class="pill ${e.status==="erledigt"?"ok":"acc"}"><i></i>${STLBL[e.status]||"offen"}</span></div>`}).join("")}</div>`:""}`}
+function bodySOS(t,p){const sid=S.me.sosId,sev=sid&&S.events[sid];
+  if(sev&&sev.status!=="erledigt"){const helpers=Object.values(S.events).filter(e=>e.type==="helper"&&e.ref===sid);
+    const stl={offen:"Flottenleitung ist informiert",uebernommen:"Flottenleitung hat übernommen","112":"Notruf 112 wurde von der Flottenleitung verständigt"}[sev.status]||"Flottenleitung ist informiert";
+    return `<div class="dcard sosact"><h4>${sev.type==="sos"?"SOS gesendet":"Flottenleitung wurde alarmiert"}</h4>
+     <ul class="checks"><li>${stl}</li><li>${(sev.nearby||[]).length} Fahrer in der Nähe informiert</li>${helpers.map(h=>`<li>${esc(h.plate)} kommt zur Hilfe (${fmt(+h.km||0,1)} km)</li>`).join("")}${sev.med?"<li>Notfallpass übermittelt</li>":""}</ul>
+     <div class="mini">Art des Notfalls</div><div class="chips">${Object.entries(SKIND).map(([k,K])=>`<button class="chip" data-sk="${k}" aria-pressed="${sev.kind===k}" type="button">${K.n}</button>`).join("")}</div></div>
+     <div class="dcard"><h4>Notruf selbst wählen</h4><a class="big112" href="tel:112">112</a><div class="mini">Die App ruft nicht selbst an. Diese Angaben durchgeben:</div>
+      <ol class="steps5"><li><b>Wo?</b> ${esc(sev.loc)}</li><li><b>Was</b> ist passiert?</li><li><b>Wie viele</b> Verletzte?</li><li><b>Welche</b> Verletzungen?</li><li><b>Warten</b> auf Rückfragen. Nicht auflegen.</li></ol>
+      <button class="btn" id="d-copyloc" type="button">Standort kopieren</button></div>
+     ${emergencyCard(t,p,sid)}
+     <button class="btn" id="d-safe" type="button">Entwarnung: Ich bin in Sicherheit</button>${firstAid()}`}
+  return `<div class="dcard sosbox"><button class="sosbtn" id="sos-hold" type="button" aria-label="SOS senden: 2 Sekunden gedrückt halten"><span>SOS</span><small>2 s halten</small><i class="holdbar"></i></button>
+    <div class="mini">Sendet Ihren Standort${S.med.share?" und den Notfallpass":""} an die Flottenleitung und an Fahrer in der Nähe.</div></div>
+   <div class="dcard"><h4>Aussteigen-Modus</h4>${S.me.out?`<div class="row2 sb"><span>Zurück spätestens in</span><b class="mono">${mmss(Math.max(0,S.me.out.until-S.cnt.simT))} min</b></div><button class="btn primary" id="d-back" type="button">Ich bin zurück im Fahrzeug</button>`
+     :`<div class="mini">Für Arbeit außerhalb der Kabine, zum Beispiel Ladung sichern oder eine Unfallstelle absichern. Ohne Rückmeldung fragt die App nach und alarmiert danach die Flottenleitung.</div><div class="row2">${[10,20,30].map(m=>`<button class="btn" data-out="${m}" type="button">${m} min</button>`).join("")}</div>`}<div class="mini">Demo im Zeitraffer ×10</div></div>
+   <div class="dcard"><h4>Automatische Sicherheitsabfrage</h4><ul class="steps5"><li>Aufprall erkannt: sofort, 30 s Zeit zum Antworten</li><li>Stillstand außerhalb eines Parkplatzes: nach 10 min</li><li>Im Tunnel ohne Signal: nach 5 min</li><li>Aussteigen-Zeit abgelaufen</li></ul><div class="mini">Ohne Antwort bekommt die Flottenleitung Standort und Empfehlung. Sie entscheidet über den Notruf 112.</div></div>${firstAid()}`}
+function renderPass(){lastHTML["d-body"]="";const m=S.med;
+  $("d-body").innerHTML=`<div class="dcard"><div class="row2 sb"><h4>Notfallpass</h4>${m.example?'<span class="pill warn"><i></i>Beispielwerte</span>':""}</div>
+   <div class="mini">Hilft Rettungskräften, wenn Sie selbst nicht sprechen können. Bleibt auf diesem Gerät und wird nur bei SOS oder ausbleibender Antwort weitergegeben, wenn Sie das erlauben.</div>
+   <div class="np">${[["blut","Blutgruppe"],["vor","Vorerkrankungen"],["med","Medikamente"],["all","Allergien"],["kontakt","Notfallkontakt (Name, Telefon)"],["sprache","Sprachen"]].map(([k,l])=>`<label for="np-${k}">${l}<input id="np-${k}" data-np="${k}" class="selx" value="${esc(m[k])}"></label>`).join("")}
+    <label class="layer" for="np-share" style="grid-template-columns:auto 1fr"><input type="checkbox" id="np-share" ${m.share?"checked":""}><span><b>Im Notfall weitergeben</b><small>an die Flottenleitung und von dort an den Rettungsdienst</small></span></label></div>
+   ${m.example?'<button class="btn" id="np-clear" type="button">Beispielwerte löschen</button>':""}
+   <div class="mini">Demo: Alle mit Zugriff auf diese Seite sehen einen übermittelten Notfallpass. Im echten Produkt nur die Flottenleitung.</div></div>`;
+  $("d-body").querySelectorAll("input[data-np]").forEach(i=>i.oninput=()=>{S.med[i.dataset.np]=i.value;S.med.example=false;saveLS(MED_KEY,S.med)});
+  $("np-share").onchange=e=>{S.med.share=e.target.checked;saveLS(MED_KEY,S.med)};
+  if($("np-clear"))$("np-clear").onclick=()=>{S.med={blut:"",vor:"",med:"",all:"",kontakt:"",sprache:"",share:true,example:false};saveLS(MED_KEY,S.med);renderPass()}}
+function copyText(txt,ok){try{navigator.clipboard.writeText(txt).then(()=>toast(ok),()=>toast("Kopieren nicht erlaubt. Bitte Text markieren."))}catch(e){toast("Kopieren nicht erlaubt. Bitte Text markieren.")}}
+function wireBody(){const t=myTruck(),me=S.me,b=id=>$(id);wireMap();
+  if(b("d-pause"))b("d-pause").onclick=()=>{if(me.paused){if(S.cnt.simT-me.pauseStart>=2700)me.lenk=0;me.paused=false;t.halt=false}else{me.paused=true;me.pauseStart=S.cnt.simT;t.halt=true}renderDrv(true)};
+  if(b("d-halt"))b("d-halt").onclick=()=>{t.halt=!(t.halt&&!me.paused);me.paused=false;if(!t.halt){me.stand=0;me.standPrompted=false}renderDrv(true)};
+  if(b("d-crash"))b("d-crash").onclick=()=>{t.halt=true;openCheckin("crash",30)};
+  $("d-body").querySelectorAll("[data-rk]").forEach(x=>x.onclick=()=>{me.rkind=x.dataset.rk;renderDrv(true)});
+  if(b("d-send"))b("d-send").onclick=()=>{if(!me.rkind)return;const ev=evBase("report");ev.kind=me.rkind;me.rkind=null;publishEvent(ev);toast(`Gesendet an die Flottenleitung und ${ev.nearby.length} Fahrer in der Nähe`)};
+  if(b("d-copyloc"))b("d-copyloc").onclick=()=>{const e=S.events[me.sosId];if(e)copyText(e.loc,"Standort kopiert")};
+  if(b("d-safe"))b("d-safe").onclick=()=>{updateEvent(me.sosId,{status:"erledigt",resolvedBy:"fahrer"});me.sosId=null;toast("Entwarnung gesendet")};
+  $("d-body").querySelectorAll("[data-sk]").forEach(x=>x.onclick=()=>updateEvent(me.sosId,{kind:x.dataset.sk}));
+  $("d-body").querySelectorAll("[data-out]").forEach(x=>x.onclick=()=>{me.out={until:S.cnt.simT+(+x.dataset.out)*60};t.halt=true;toast("Aussteigen-Modus läuft");renderDrv(true)});
+  if(b("d-back"))b("d-back").onclick=()=>{me.out=null;t.halt=false;me.stand=0;renderDrv(true)};
+  const hb=b("sos-hold");if(hb){const start=()=>{if(me.holding)return;me.holding=true;hb.classList.add("holding");me.holdT=setTimeout(()=>{if(me.holding){me.holding=false;triggerSOS("notfall")}},2000)};
+    hb.onpointerdown=e=>{e.preventDefault();start()};hb.onkeydown=e=>{if((e.key===" "||e.key==="Enter")&&!e.repeat){e.preventDefault();start()}}}}
+function renderDrv(force){const w=$("drvwrap");if(!w||w.hidden)return;const me=S.me,t=myTruck(),p=posOf(t);
+  if(force)["d-body","d-banners","d-tabs","d-over"].forEach(k=>lastHTML[k]="");
+  setHTML("d-conn",`<span class="pill ${S.live?"ok":""}"><i></i>${S.live?"Live verbunden":"Demo lokal"}</span>`);
+  const st=sosActive()?["crit","Notfall aktiv"]:t.own&&S.cnt.own?["warn","Im Tunnel "+mmss(S.cnt.simT-S.cnt.own.t0)]:me.paused?["acc","Pause"]:me.out?["acc","Ausgestiegen"]:t.halt?["warn","Steht"]:["ok","Fährt"];
+  setHTML("d-stat",`<span class="pill ${st[0]}"><i></i>${st[1]}</span>`);
+  const bh=me.banners.slice(0,3).map(b=>`<div class="dban ${b.kind}"><div class="row2 sb"><span>${esc(b.text)}</span>${b.kind==="help"&&!b.done?"":`<button class="bx" data-bx="${b.id}" type="button" aria-label="Hinweis schließen">×</button>`}</div>${b.kind==="help"&&!b.done?`<div class="row2"><button class="btn primary" data-help="${b.id}" type="button">Ich helfe</button><button class="btn" data-bx="${b.id}" type="button">Kann nicht</button></div><div class="mini">Nur anhalten, wenn es sicher möglich ist. Warnweste anziehen, Stelle absichern.</div>`:b.done?`<div class="mini">Danke. Die Flottenleitung weiß, dass Sie unterwegs sind.</div>`:""}</div>`).join("");
+  if(setHTML("d-banners",bh)){$("d-banners").querySelectorAll("[data-bx]").forEach(x=>x.onclick=()=>{me.banners=me.banners.filter(b=>b.id!==x.dataset.bx);renderDrv()});
+    $("d-banners").querySelectorAll("[data-help]").forEach(x=>x.onclick=()=>{const b=me.banners.find(y=>y.id===x.dataset.help),ref=b&&S.events[b.ev];if(!ref)return;
+      const q=posOf(t),ev=evBase("helper");ev.ref=ref.id;ev.refPlate=ref.plate;ev.km=Math.round(Math.hypot(q.x-(+ref.x||0),q.y-(+ref.y||0))*KM_PX*10)/10;ev.status="erledigt";b.done=true;publishEvent(ev)})}
+  const TABS=[["fahrt","Fahrt",IC.nav],["melden","Melden",IC.unfall],["sos","Notfall",IC.sos],["pass","Notfallpass",IC.pass]];
+  if(setHTML("d-tabs",TABS.map(([k,l,ic])=>`<button type="button" data-tab="${k}" class="${k==="sos"?"sos":""}" ${me.tab===k?'aria-current="page"':""}><svg viewBox="0 0 24 24">${ic}</svg>${l}</button>`).join("")))
+    $("d-tabs").querySelectorAll("button").forEach(b=>b.onclick=()=>{me.tab=b.dataset.tab;renderDrv(true);const w=$("drvwrap");if(w.classList.contains("full"))window.scrollTo(0,0);else w.scrollTop=0});
+  if(me.tab==="pass"){if(force||lastHTML["d-tab"]!=="pass")renderPass();lastHTML["d-tab"]="pass"}
+  else{lastHTML["d-tab"]=me.tab;if(!me.holding&&!me.dragging&&setHTML("d-body",me.tab==="fahrt"?bodyFahrt(t,p):me.tab==="melden"?bodyMelden(t,p):bodySOS(t,p)))wireBody()}
+  const c=me.checkin,o=$("d-over");
+  if(!c){o.hidden=true;lastHTML["d-over"]=""}
+  else{o.hidden=false;const s=Math.max(0,Math.ceil((c.deadline-Date.now())/1000));
+    if(setHTML("d-over",`<div class="ci" role="alertdialog" aria-labelledby="ci-h" aria-describedby="ci-d"><h3 id="ci-h">Alles in Ordnung?</h3><p id="ci-d">${REASON[c.reason][0]}</p><div class="cdn mono">${s}</div><p class="mini">Ohne Antwort wird die Flottenleitung informiert, mit Standort${S.med.share?" und Notfallpass":""}.</p><button class="ciok" id="ci-ok" type="button">Mir geht es gut</button><button class="cihelp" id="ci-help" type="button">Ich brauche Hilfe</button></div>`)){
+      $("ci-ok").onclick=()=>{checkinOk();renderDrv(true)};$("ci-help").onclick=()=>triggerSOS("notfall");$("ci-ok").focus()}}
+}
+
+/* Flottenzentrale: Flotte und Notfälle */
+function truckStatus(t){const inc=openIncidents().find(e=>e.plate===t.id);if(inc)return inc.type==="sos"?["crit","SOS"]:["crit","antwortet nicht"];
+  if(t.own&&S.cnt.own)return [S.cnt.own.level>=2?"crit":S.cnt.own.level>=1?"warn":"acc","im Tunnel "+mmss(S.cnt.simT-S.cnt.own.t0)];
+  if(t.halt)return ["warn","steht"];return ["ok","fährt"]}
+function renderFleetList(){const h=TRUCKS.map((t,i)=>{const [l,s]=truckStatus(t);return `<button class="fl ${S.sel==="K"+i?"on":""}" data-k="K${i}" type="button"><b>${t.id}</b><span class="pill ${l}"><i></i>${s}</span><small>${DRIVERS[t.id]} · Route ${t.route()}</small></button>`}).join("");
+  if(setHTML("fleetlist",h))$("fleetlist").querySelectorAll(".fl").forEach(b=>b.onclick=()=>{S.sel=b.dataset.k;drawDynamic();drawTrucks();info();renderFleetList()})}
+function callText(e){return [`Notfall mit LKW-Fahrer:in, Kennzeichen ${e.plate}.`,e.type==="sos"?`Grund: SOS ausgelöst (${(SKIND[e.kind]||SKIND.notfall).n}).`:`Grund: Fahrer:in ${e.reasonText}.`,`Ort: ${e.loc}.`,e.inTunnel?"Fahrzeug befindet sich im Tunnel T1.":"",e.med?`Notfallpass: ${e.med}.`:"","Rückrufnummer der Flottenleitung: [hier eintragen]."].filter(Boolean).join("\n")}
+function renderIncidents(){const inc=openIncidents();
+  const h=`<h2>Notfälle ${inc.length?`<span class="pill crit"><i></i>${inc.length} offen</span>`:""}</h2>`+(inc.length?inc.map(e=>{const age=Math.max(0,Math.round((Date.now()-e.ts)/60000)),helpers=Object.values(S.events).filter(x=>x.type==="helper"&&x.ref===e.id);
+    const title=e.type==="sos"?"SOS: "+(SKIND[e.kind]||SKIND.notfall).n:"Antwortet nicht: "+esc(e.reasonText);
+    const st={offen:"crit",uebernommen:"warn","112":"acc"}[e.status]||"crit",id=esc(e.id);
+    return `<div class="inc"><div class="mhead"><h3>${title}</h3><span class="pill ${st}"><i></i>${STLBL[e.status]||"offen"} · vor ${age} min</span></div>
+     <dl class="kv"><dt>Fahrzeug</dt><dd>${esc(e.plate)} · ${esc(DRIVERS[e.plate]||"")}</dd><dt>Standort</dt><dd>${esc(e.loc)}</dd>${e.med?`<dt>Notfallpass</dt><dd>${esc(e.med)}</dd>`:""}
+      <dt>In der Nähe</dt><dd>${(e.nearby||[]).length?e.nearby.map(n=>`${esc(n.plate)} (${fmt(+n.km||0,1)} km)`).join(", "):"keine eigenen Fahrzeuge"}${helpers.length?` · <b>hilft: ${helpers.map(x=>esc(x.plate)).join(", ")}</b>`:""}</dd></dl>
+     <div class="rec"><b>Empfehlung</b><ol><li>Fahrer:in sofort anrufen.</li><li>Keine Antwort oder Notfall bestätigt: <b>Notruf 112</b> mit dem Text unten.</li><li>${e.inTunnel?"Im Tunnel: zusätzlich die Tunnelleitzentrale informieren.":"Fahrer in der Nähe wurden automatisch gefragt, ob sie helfen können."}</li></ol></div>
+     <details><summary>Text für den Notruf</summary><pre class="rep">${esc(callText(e))}</pre><button class="btn" data-copy="${id}" type="button">Text kopieren</button></details>
+     <div class="demo">${e.status==="offen"?`<button class="btn" data-st="uebernommen" data-id="${id}" type="button">Übernehmen</button>`:""}${e.status!=="112"?`<button class="btn danger" data-st="112" data-id="${id}" type="button">112 verständigt</button>`:""}<button class="btn" data-st="erledigt" data-id="${id}" type="button">Abschließen</button></div></div>`}).join("")
+    :`<p class="muted" style="margin:0;font-size:12.5px">Keine offenen Notfälle. Ein SOS oder eine ausbleibende Antwort auf die Sicherheitsabfrage erscheint hier mit Standort und Empfehlung. Zum Testen oben „Fahrer-App daneben“ öffnen.</p>`);
+  if(setHTML("incidents",h)){$("incidents").querySelectorAll("[data-st]").forEach(b=>b.onclick=()=>updateEvent(b.dataset.id,{status:b.dataset.st}));
+    $("incidents").querySelectorAll("[data-copy]").forEach(b=>b.onclick=()=>{const e=S.events[b.dataset.copy];if(e)copyText(callText(e),"Notruf-Text kopiert")})}}
+function drawEvents(){const g=$("g-ev");if(!g)return;
+  const reps=activeReports().map(e=>{const K=RKIND[e.kind]||RKIND.sonst;return `<g class="obj ${S.sel===e.id?"sel":""}" data-obj="${esc(e.id)}" transform="translate(${(+e.x||0).toFixed(1)} ${(+e.y||0).toFixed(1)})"><circle r="12" fill="var(--surface)" stroke="var(--${K.lvl})" stroke-width="2.5"/><g transform="translate(-8 -8) scale(.667)" fill="none" stroke="var(--${K.lvl})" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">${K.ic}</g></g>`}).join("");
+  const inc=openIncidents().map(e=>`<g class="obj evm ${S.sel===e.id?"sel":""}" data-obj="${esc(e.id)}" transform="translate(${(+e.x||0).toFixed(1)} ${(+e.y||0).toFixed(1)})"><circle r="16" class="halo"/><circle r="9" fill="var(--crit)" stroke="var(--surface)" stroke-width="2"/><text y="4" text-anchor="middle" style="font:800 12px var(--display);fill:#fff">!</text></g>`).join("");
+  g.innerHTML=reps+inc}
+function eventInfo(e){const K=e.type==="report"?(RKIND[e.kind]||RKIND.sonst).n:e.type==="sos"?"SOS: "+(SKIND[e.kind]||SKIND.notfall).n:"Antwortet nicht";
+  return `<div class="mhead"><h3>${K}</h3><span class="pill ${e.type==="report"?((RKIND[e.kind]||RKIND.sonst).lvl):"crit"}"><i></i>${STLBL[e.status]||"offen"}</span></div>
+   <dl class="kv"><dt>Gemeldet von</dt><dd>${esc(e.plate)} vor ${Math.max(0,Math.round((Date.now()-e.ts)/60000))} min</dd><dt>Ort</dt><dd>${esc(e.loc)}</dd><dt>Weitergeleitet an</dt><dd>${(e.nearby||[]).length?e.nearby.map(n=>esc(n.plate)).join(", "):"keine Fahrer in der Nähe"}</dd></dl>
+   ${e.type==="report"&&e.status!=="erledigt"?`<button class="btn" id="ev-done" data-id="${esc(e.id)}" type="button">Meldung als erledigt markieren</button>`:""}`}
+
+/* Ansichten und Live-Verbindung */
+function setConnPill(){setHTML("conn",`<span class="pill ${S.live?"ok":""}" title="${S.live?"Fahrer-App und Flottenzentrale tauschen Meldungen über alle Geräte aus":"Ohne Anmeldung laufen beide Apps nur in diesem Fenster"}"><i></i>${S.live?"Live: Apps verbunden":"Demo lokal"}</span>`)}
+function applyView(){const drv=location.hash==="#fahrer";document.body.classList.toggle("mode-driver",drv);
+  $("v-fleet").setAttribute("aria-current",drv?"false":"page");$("v-driver").setAttribute("aria-current",drv?"page":"false");
+  const w=$("drvwrap");w.classList.toggle("full",drv);w.hidden=!(drv||S.me.drawer);$("d-drawer").textContent=S.me.drawer?"Fahrer-App schließen":"Fahrer-App daneben";
+  setConnPill();renderDrv(true);if(!drv)drawChart()}
+function initDrv(){
+  $("drv").innerHTML=`<div class="dtop"><label class="dplate" for="d-plate">Ich fahre<select id="d-plate" class="selx">${TRUCKS.map(t=>`<option value="${t.id}" ${t.id===S.me.plate?"selected":""}>${t.id} · ${DRIVERS[t.id]}</option>`).join("")}</select></label><span id="d-conn"></span><span id="d-stat"></span></div><div id="d-banners" class="dbanners" aria-live="polite"></div><div id="d-body" class="dbody"></div><nav class="dtabs" id="d-tabs" aria-label="Fahrer-App"></nav><div id="d-over" class="dover" hidden></div>`;
+  $("d-plate").onchange=e=>{S.me.plate=e.target.value;saveLS(PLATE_KEY,S.me.plate);S.me.stand=0;S.me.sosId=null;renderDrv(true)};
+  $("drv-close").onclick=()=>{S.me.drawer=false;applyView()};
+  $("d-drawer").onclick=()=>{S.me.drawer=!S.me.drawer;applyView()};
+  window.addEventListener("hashchange",applyView);
+  const stopHold=()=>{if(S.me.holding){S.me.holding=false;clearTimeout(S.me.holdT);const b=$("sos-hold");if(b)b.classList.remove("holding")}};
+  document.addEventListener("pointerup",stopHold);document.addEventListener("pointercancel",stopHold);document.addEventListener("keyup",e=>{if(e.key===" "||e.key==="Enter")stopHold()});
+  $("info").addEventListener("click",e=>{const b=e.target.closest("#ev-done");if(b)updateEvent(b.dataset.id,{status:"erledigt"})});
+}
+async function connectDB(){const c=window.claude;if(!c||!c.use){setConnPill();return}
+  let db=null;try{db=await c.use("db")}catch(e){}
+  if(!db){S.live=false;setConnPill();renderDrv(true);return}
+  DB=db;try{const u=await c.use("user");ME=u?await u.id():null}catch(e){}
+  const tm=setTimeout(()=>{S.live=false;setConnPill()},10000);
+  db.collection("events").orderBy("ts","desc").limit(80).onSnapshot(snap=>{clearTimeout(tm);S.live=true;const first=!S.dbLoaded;S.dbLoaded=true;
+    snap.docs.forEach(d=>{const e=d.data();if(!e||typeof e.ts!=="number")return;e.id=d.id;const old=S.events[d.id];S.events[d.id]=e;
+      if(!S.seen.has(d.id)){if(first&&Date.now()-e.ts>10*60e3)S.seen.add(d.id);else handleNew(e)}else if(old)handleStatus(e,old)});
+    setConnPill();refreshEvents()},()=>{clearTimeout(tm);S.live=false;setConnPill()});
+}
+
+/* ---------- Rastplätze, Notrufsäulen, Fahrer-Karte ---------- */
+const RAST=[
+ {id:"R1",name:"Rastanlage A95 Nord",at:on("P1","P2",.72),routes:["A","B"],total:60,fac:["WC","Dusche","Restaurant","Tankstelle","LKW-Schnellladen"]},
+ {id:"R2",name:"Parkplatz A95 Süd",at:on("X1","P3",.45),routes:["B"],total:24,fac:["WC"]},
+ {id:"R3",name:"Autohof an der Staatsstraße",at:on("A1","A2",.7),routes:["A"],total:40,fac:["WC","Dusche","Restaurant","Tankstelle"]},
+ {id:"R4",name:"Autohof Weilheim",at:on("C3","W",.8),routes:["C"],total:35,fac:["WC","Dusche","Tankstelle"]},
+ {id:"R5",name:"LKW-Parkplatz Murnau",at:on("J1","P4",.5),routes:["B"],total:18,fac:["WC"]},
+ {id:"R6",name:"Autohof Murnau",at:on("C4","Mu",.6),routes:["C"],total:30,fac:["WC","Restaurant","Tankstelle"]}
+];
+function freeSpots(r){const k=RAST.indexOf(r);return Math.max(0,Math.round(r.total*(.06+.45*(.5+.5*Math.sin(S.cnt.simT/2400+k*1.7)))))}
+function geo(r){const P=pts(r),L=[],cum=[0];let tot=0;for(let i=0;i<P.length-1;i++){const l=Math.hypot(P[i+1][0]-P[i][0],P[i+1][1]-P[i][1]);L.push(l);tot+=l;cum.push(tot)}
+  const proj=(x,y)=>{let bd=1e9,al=0;for(let i=0;i<L.length;i++){const ax=P[i][0],ay=P[i][1],dx=P[i+1][0]-ax,dy=P[i+1][1]-ay,u=clamp(((x-ax)*dx+(y-ay)*dy)/(dx*dx+dy*dy),0,1),dd=Math.hypot(ax+dx*u-x,ay+dy*u-y);if(dd<bd){bd=dd;al=cum[i]+u*L[i]}}return {al,d:bd}};
+  return {P,L,cum,tot,kpp:ROUTES[r].km/tot,proj}}
+// Notrufsäulen alle 2 km auf der A95 (Demo-Positionen)
+const SAEULEN=(()=>{const g=geo("B"),P=g.P.slice(0,6),step=2/g.kpp,out=[];let carry=step/2;
+  for(let i=0;i<P.length-1;i++){const dx=P[i+1][0]-P[i][0],dy=P[i+1][1]-P[i][1],l=Math.hypot(dx,dy);let s=carry;while(s<l){out.push([P[i][0]+dx*s/l,P[i][1]+dy*s/l]);s+=step}carry=s-l}
+  return out})();
+const onAutobahn=p=>road(p.route,p.seg).startsWith("A95");
+function nearestSaeule(p){if(!onAutobahn(p))return null;const g=geo(p.route),here=p.frac*g.tot;let best=null;
+  SAEULEN.forEach(s=>{const q=g.proj(s[0],s[1]);if(q.d>6)return;const dkm=(q.al-here)*g.kpp;if(!best||Math.abs(dkm)<Math.abs(best.km))best={km:dkm,at:s}});
+  return best&&{km:Math.abs(best.km),dir:best.km>=0?"voraus":"zurück",at:best.at}}
+function tunnelPos(t){if(!(t.own&&S.cnt.own))return null;const m=Math.min(3000,(S.cnt.simT-S.cnt.own.t0)*16.7);
+  const ex=Math.round(m/300)*300,ni=Math.round(m/150)*150;return {m,exit:Math.abs(ex-m),exitDir:ex>=m?"voraus":"zurück",niche:Math.abs(ni-m),nicheDir:ni>=m?"voraus":"zurück"}}
+function rastAhead(t,p){const g=geo(p.route),here=p.frac*g.tot,reach=Math.max(0,(270-S.me.lenk)/60*65);
+  return RAST.filter(x=>x.routes.includes(p.route)).map(x=>{const q=g.proj(x.at[0],x.at[1]);return {...x,km:(q.al-here)*g.kpp,free:freeSpots(x)}})
+    .filter(x=>x.km>=-.5).map(x=>({...x,km:Math.max(0,x.km),reach:x.km<=reach})).sort((a,b)=>a.km-b.km).slice(0,4)}
+function whereCard(t,p){const tp=p.inTunnel?tunnelPos(t):null,sae=nearestSaeule(p);
+  if(p.inTunnel)return tp?`<div class="dcard tun"><h4>Im Tunnel T1</h4><div>Geschätzte Position: ca. <b>${fmt(Math.round(tp.m/50)*50)} m</b> nach der Einfahrt (aus der Zeit seit der Einfahrt, kein GPS).</div><div>Nächster Notausgang: ca. <b>${fmt(Math.round(tp.exit/10)*10)} m ${tp.exitDir}</b>, grün beschildert. Notrufnische: ca. ${fmt(Math.round(tp.niche/10)*10)} m ${tp.nicheDir}.</div><div class="mini">Notausgänge in diesem Demo-Tunnel alle 300 m, Notrufnischen alle 150 m.</div></div>`:tunnelHelp();
+  if(sae)return `<div class="dcard"><div class="row2 sb"><h4>Nächste Notrufsäule</h4><span class="mono">${fmt(sae.km,1)} km ${sae.dir}</span></div><div class="mini">Kleine Pfeile an den Leitpfosten zeigen zur nächsten Säule. Hinter der Schutzplanke gehen. An der Säule ist Ihr Standort automatisch bekannt.</div></div>`;
+  return `<div class="dcard"><h4>Notruf</h4><div class="mini">An ${road(p.route,p.seg).split(" Richtung")[0]} gibt es keine Notrufsäulen. Im Notfall 112 mit dem Handy wählen.</div></div>`}
+function pauseCard(rast){if(!rast.length)return `<div class="dcard"><h4>Rastplätze voraus</h4><p class="mini">Keine Rastplätze mehr bis zum Ziel.</p></div>`;
+  const rec=rast.find(x=>x.reach&&x.free>0);
+  return `<div class="dcard"><div class="row2 sb"><h4>Pausenkarte · Rastplätze voraus</h4><span class="mini">noch ${fmtH(Math.max(0,270-S.me.lenk))} h Lenkzeit</span></div>${rast.map(x=>`<div class="next"><span class="ic acc"><b style="font-size:14px">P</b></span><span><b>${x.name}${rec&&rec.id===x.id?' <span class="pill ok"><i></i>Empfohlen</span>':""}</b><small>${x.free} von ${x.total} LKW-Plätzen frei · ${x.fac.join(", ")}${x.reach?"":" · <b>nicht mehr in der Lenkzeit erreichbar</b>"}</small></span><span class="km">${fmt(x.km,1)} km</span></div>`).join("")}<div class="mini">Freie Plätze geschätzt (Demo). Echt: Parkleitsysteme der Autobahn GmbH und Stellplatz-Apps.</div></div>`}
+function lenkCard(){const me=S.me;return `<div class="dcard"><div class="row2 sb"><h4>Lenkzeit</h4><span class="mono">${fmtH(me.lenk)} / 4:30 h</span></div><div class="bar2"><i style="width:${clamp(me.lenk/270*100,0,100).toFixed(1)}%;background:var(--${me.lenk>=255?"crit":me.lenk>=225?"warn":"ok"})"></i></div>
+    <div class="mini">${me.paused?`Pause seit ${mmss(S.cnt.simT-me.pauseStart)} min. Nach 45 min beginnt die Lenkzeit neu.`:me.lenk>=270?"Lenkzeit überschritten: jetzt 45 min Pause machen.":"Pause spätestens in "+fmtH(270-me.lenk)+" h. Nach 4,5 h Lenkzeit sind 45 min Pause Pflicht."}</div>
+    <button class="btn" id="d-pause" type="button">${me.paused?"Pause beenden":"Ich mache Pause (Parkplatz)"}</button></div>`}
+function demoCard(t){const me=S.me;return `<div class="dcard"><h4>Demo</h4><div class="row2"><button class="btn" id="d-halt" type="button">${t.halt&&!me.paused?"Weiterfahren":"Fahrzeug bleibt stehen"}</button><button class="btn danger" id="d-crash" type="button">Aufprall simulieren</button></div>
+    <div class="mini">${t.halt&&!me.paused&&!me.out?`Steht seit ${mmss(me.stand)} min. Ab 10 min fragt die App nach.`:"Steht das Fahrzeug, erscheint die Karte. Stillstand außerhalb eines Parkplatzes löst nach 10 min eine Abfrage aus. Zeitraffer ×10."}</div></div>`}
+function bodyFahrt(t,p){const r=p.route,e=evalRoute(r),R=ROUTES[r],ups=upcoming(t,p),me=S.me,stuck=t.own&&S.cnt.own&&S.cnt.own.stuck;
+  const standing=t.halt||me.paused||!!me.out||!!stuck,rast=rastAhead(t,p);
+  const head=`<div class="dcard"><div class="row2 sb"><div><div class="mini">Route ${r} · ${R.via}</div><h4>${R.name}</h4></div>${e.ok?lbl(e.label):'<span class="pill crit"><i></i>gesperrt</span>'}</div><div class="mini">${esc(locText(p))}</div></div>`;
+  const row=u=>`<div class="next"><span class="ic ${u.lvl}"><svg viewBox="0 0 24 24">${u.ic}</svg></span><span><b>${esc(u.n)}</b><small>${esc(u.d)}</small></span><span class="km">${fmt(u.km,1)} km</span></div>`;
+  if(!standing){const n=ups[0];
+    return head+`<div class="dcard drive"><div class="row2 sb"><span class="mini">Fahrmodus · Karte nur im Stand (§ 23 StVO)</span></div>
+      ${n?`<div class="bignext"><span class="ic ${n.lvl}"><svg viewBox="0 0 24 24">${n.ic}</svg></span><div><div class="bkm mono">${fmt(n.km,1)} km</div><b>${esc(n.n)}</b><div class="mini">${esc(n.d)}</div></div></div>`:'<p class="mini">Keine Hinweise auf den nächsten Kilometern.</p>'}
+      ${ups.slice(1,3).map(row).join("")}</div>
+      ${p.inTunnel?tunnelHelp():""}
+      ${rast[0]?`<div class="dcard"><div class="row2 sb"><h4>Nächster Rastplatz</h4><span class="mono">${fmt(rast[0].km,1)} km</span></div><div class="mini">${rast[0].name} · ${rast[0].free} LKW-Plätze frei</div></div>`:""}
+      ${lenkCard()}${demoCard(t)}`}
+  return head+`<div class="dcard"><div class="row2 sb"><h4>Karte</h4><span class="pill acc"><i></i>${me.paused?"Pause":me.out?"Ausgestiegen":stuck?"Stillstand im Tunnel":"Fahrzeug steht"}</span></div>${drvMap(t,p,"stand")}</div>
+    ${poiCard(t,p)}${whereCard(t,p)}${pauseCard(rast)}
+    <div class="dcard"><h4>Als Nächstes</h4>${ups.length?ups.map(row).join(""):'<p class="mini">Keine Hinweise auf den nächsten Kilometern.</p>'}</div>
+    ${lenkCard()}${demoCard(t)}`}
+function emergencyCard(t,p,sid){const helpers=Object.values(S.events).filter(e=>e.type==="helper"&&e.ref===sid).map(h=>{const tt=TRUCKS.find(x=>x.id===h.plate);return tt?{plate:h.plate,...posOf(tt)}:null}).filter(Boolean);
+  return `<div class="dcard"><h4>Wo bin ich?</h4>${drvMap(t,p,"sos",helpers)}</div>${whereCard(t,p)}`}
+function drawRast(){const g=$("g-rast");if(!g)return;
+  g.innerHTML=SAEULEN.map(a=>`<rect x="${(a[0]-2.5).toFixed(1)}" y="${(a[1]-2.5).toFixed(1)}" width="5" height="5" rx="1" fill="#f08a00" stroke="#1a1408" stroke-width=".8"/>`).join("")+
+   RAST.map(x=>`<g class="obj ${S.sel===x.id?"sel":""}" data-obj="${x.id}" transform="translate(${(x.at[0]+14).toFixed(1)} ${(x.at[1]+10).toFixed(1)})"><rect x="-7" y="-7" width="14" height="14" rx="3" fill="#1f5fbf" stroke="var(--surface)" stroke-width="1.5"/><text y="4" text-anchor="middle" style="font:800 10px var(--display);fill:#fff">P</text></g>`).join("")}
+function rastInfo(x){const f=freeSpots(x);return `<div class="mhead"><h3>${x.name}</h3><span class="pill ${f>5?"ok":f>0?"warn":"crit"}"><i></i>${f} von ${x.total} LKW-Plätzen frei</span></div><dl class="kv"><dt>Ausstattung</dt><dd>${x.fac.join(", ")}</dd><dt>Auf Route</dt><dd>${x.routes.join(", ")}</dd><dt>Quelle</dt><dd>Belegung geschätzt (Demo). Echt: Parkleitsysteme, Stellplatz-Apps</dd></dl>`}
+
+/* ---------- Tankstellen, Läden, zoombare Fahrer-Karte ---------- */
+const POI=[
+ {id:"Q1",type:"tank",sub:"Autohof-Tankstelle",name:"Autohof-Tankstelle München Nord",at:[744,96],hours:"24 h",lkw:true,ex:["Diesel","AdBlue","LKW-Waschanlage","Shop","WC"],diesel:1.62},
+ {id:"Q2",type:"shop",sub:"Supermarkt",name:"Supermarkt am Hub",at:[776,102],hours:"7–21 Uhr",lkw:false,ex:["Lebensmittel","Getränke","Backtheke"]},
+ {id:"Q3",type:"tank",sub:"Tankstelle",name:"Tankstelle Rastanlage A95 Nord",at:[667,214],hours:"24 h",lkw:true,ex:["Diesel","AdBlue","Shop","WC","Dusche"],diesel:1.71},
+ {id:"Q4",type:"tank",sub:"Tankstelle",name:"Ortstankstelle Starnberg",at:[601,204],hours:"6–22 Uhr",lkw:false,ex:["Diesel","Shop"],diesel:1.66},
+ {id:"Q5",type:"shop",sub:"Bäckerei",name:"Bäckerei Starnberg",at:[574,222],hours:"6–18 Uhr",lkw:false,ex:["Kaffee","Belegte Brötchen"]},
+ {id:"Q6",type:"tank",sub:"Tankstelle",name:"Tankstelle Wolfratshausen",at:[727,309],hours:"6–23 Uhr",lkw:true,ex:["Diesel","AdBlue","Shop"],diesel:1.64},
+ {id:"Q7",type:"shop",sub:"Kiosk",name:"Kiosk am Bahnhof Wolfratshausen",at:[704,291],hours:"5–20 Uhr",lkw:false,ex:["Getränke","Zeitungen","Snacks"]},
+ {id:"Q8",type:"tank",sub:"Autohof-Tankstelle",name:"Autohof-Tankstelle Staatsstraße",at:[648,520],hours:"24 h",lkw:true,ex:["Diesel","AdBlue","Shop","WC","Dusche"],diesel:1.63},
+ {id:"Q9",type:"shop",sub:"Metzgerei",name:"Metzgerei mit Imbiss",at:[631,537],hours:"7–18 Uhr",lkw:true,ex:["Warmes Essen","Brotzeit"]},
+ {id:"Q10",type:"tank",sub:"Tankstelle",name:"Tankstelle Weilheim",at:[373,391],hours:"6–22 Uhr",lkw:true,ex:["Diesel","AdBlue","Shop"],diesel:1.65},
+ {id:"Q11",type:"shop",sub:"Supermarkt",name:"Supermarkt Weilheim",at:[349,411],hours:"7–20 Uhr",lkw:false,ex:["Lebensmittel","Getränke"]},
+ {id:"Q12",type:"tank",sub:"Tankstelle",name:"Tankstelle Murnau",at:[502,511],hours:"6–22 Uhr",lkw:true,ex:["Diesel","AdBlue","Shop","WC"],diesel:1.67},
+ {id:"Q13",type:"shop",sub:"Bäckerei",name:"Bäckerei Murnau",at:[481,531],hours:"6–18 Uhr",lkw:false,ex:["Kaffee","Brotzeit"]},
+ {id:"Q14",type:"shop",sub:"Kiosk",name:"Kiosk an der B2",at:[512,560],hours:"6–21 Uhr",lkw:true,ex:["Getränke","Snacks","Kaffee"]},
+ {id:"Q15",type:"tank",sub:"Tankstelle",name:"Tankstelle Garmisch Nord",at:[455,652],hours:"24 h",lkw:true,ex:["Diesel","AdBlue","Shop","WC"],diesel:1.69},
+ {id:"Q16",type:"shop",sub:"Supermarkt",name:"Supermarkt Garmisch",at:[428,674],hours:"7–20 Uhr",lkw:false,ex:["Lebensmittel","Getränke","Drogerie"]},
+ {id:"Q17",type:"tank",sub:"Tankstelle",name:"Tankstelle Bad Tölz",at:[781,432],hours:"6–22 Uhr",lkw:true,ex:["Diesel","Shop"],diesel:1.66},
+ {id:"Q18",type:"shop",sub:"Bäckerei",name:"Bäckerei Bad Tölz",at:[760,450],hours:"6–17 Uhr",lkw:false,ex:["Kaffee","Brötchen"]}
+];
+const POI_ICON={tank:{c:"#0f8a5f",g:'<path d="M5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h14M7 8h6M15 10h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V9l-3-3"/>',n:"Tankstellen"},
+ shop:{c:"#8a3fd1",g:'<path d="M5 8h14l-1 13H6zM9 8V6a3 3 0 0 1 6 0v2"/>',n:"Läden"}};
+S.me.map={z:1,dx:0,dy:0};S.me.poiF={tank:true,shop:true,rast:true};S.me.poi=null;S.me.dragging=false;
+function openNow(h){if(h==="24 h")return true;const m=h.match(/(\d+)–(\d+)/);if(!m)return null;const n=new Date(),x=n.getHours()+n.getMinutes()/60;return x>=+m[1]&&x<+m[2]}
+function drvMap(t,p,mode,helpers){const zm=mode==="stand"?S.me.map:{z:1,dx:0,dy:0},W=170/zm.z,H=126/zm.z,x0=p.x+zm.dx-W/2,y0=p.y+zm.dy-H/2,k=1/zm.z,r=p.route,F=S.me.poiF;
+  const inV=a=>a[0]>x0-8*k&&a[0]<x0+W+8*k&&a[1]>y0-8*k&&a[1]<y0+H+8*k,f1=v=>(+v).toFixed(1),f2=v=>(+v).toFixed(2);
+  const lab=(x,y,txt)=>`<text x="${f1(x)}" y="${f1(y)}" class="dm-t" style="font-size:${f2(5*k)}px;stroke-width:${f2(1.2*k)}px">${txt}</text>`;
+  const seg=pts(r)[p.seg],nx=pts(r)[p.seg+1]||seg,hd=Math.atan2(nx[0]-seg[0],-(nx[1]-seg[1]))/RAD;
+  let s=`<svg ${mode==="stand"?'id="dmap"':""} viewBox="${f1(x0)} ${f1(y0)} ${f1(W)} ${f1(H)}" class="dmap ${mode==="stand"?"zoomable":""}" role="img" aria-label="Karte rund um Ihre Position${mode==="stand"?". Ziehen zum Verschieben, Plus und Minus zum Zoomen":""}"><rect x="${f1(x0-400)}" y="${f1(y0-400)}" width="${f1(W+800)}" height="${f1(H+800)}" class="land"/>`;
+  s+=`<ellipse class="water" cx="602" cy="320" rx="17" ry="82"/><ellipse class="water" cx="390" cy="262" rx="18" ry="56"/><ellipse class="water" cx="447" cy="535" rx="20" ry="11"/>`;
+  ["A","B","C"].filter(x=>x!==r).forEach(x=>s+=`<path d="${d(pts(x))}" class="dm-road" stroke-width="${f2(2.4*k)}"/>`);
+  s+=`<path d="${d(pts(r))}" class="dm-route" stroke-width="${f2(4*k)}"/><path d="${d([P.T1a,P.T1b])}" stroke="var(--ink)" stroke-width="${f2(5*k)}"/>`;
+  [["München",P.M],["Starnberg",[585,212]],["Wolfratshausen",P.WR],["Bad Tölz",P.BT],["Weilheim",P.W],["Murnau",P.Mu],["Garmisch-P.",P.G]].forEach(([n,a])=>{if(inV(a))s+=`<circle cx="${a[0]}" cy="${a[1]}" r="${f2(1.6*k)}" class="town-dot"/>`+lab(a[0]+3*k,a[1]-2*k,n)});
+  SAEULEN.filter(inV).forEach(a=>s+=`<rect x="${f1(a[0]-1.8*k)}" y="${f1(a[1]-1.8*k)}" width="${f2(3.6*k)}" height="${f2(3.6*k)}" rx="${f2(.6*k)}" fill="#f08a00" stroke="#1a1408" stroke-width="${f2(.5*k)}"/>`);
+  if(mode==="stand"){BR.filter(b=>b.routes.includes(r)&&inV(b.at)).forEach(b=>s+=`<circle cx="${f1(b.at[0])}" cy="${f1(b.at[1])}" r="${f2(2.6*k)}" fill="var(--${gradeLvl(b.note)})" stroke="var(--surface)" stroke-width="${f2(.8*k)}"/>`);
+    [...HZ.filter(h=>h.route===r).map(h=>h.at),...WORKS.filter(w=>w.routes.includes(r)).map(w=>w.at)].filter(inV).forEach(a=>s+=`<path d="M${f1(a[0])} ${f1(a[1]-3.4*k)} l${f2(3*k)} ${f2(5.4*k)} h${f2(-6*k)}z" fill="#fff" stroke="#d0021b" stroke-width="${f2(k)}"/>`);
+    activeReports().filter(e=>inV([+e.x||0,+e.y||0])).forEach(e=>{const K=RKIND[e.kind]||RKIND.sonst;s+=`<circle cx="${f1(+e.x||0)}" cy="${f1(+e.y||0)}" r="${f2(3*k)}" fill="var(--surface)" stroke="var(--${K.lvl})" stroke-width="${f2(1.4*k)}"/>`});
+    POI.filter(x=>F[x.type]&&inV(x.at)).forEach(x=>{const I=POI_ICON[x.type],sel=S.me.poi===x.id,sz=7*k;
+      s+=`<g data-poi="${x.id}" class="poi" transform="translate(${f1(x.at[0])} ${f1(x.at[1])})">${sel?`<circle r="${f2(6.5*k)}" fill="none" stroke="var(--accent)" stroke-width="${f2(1.4*k)}"/>`:""}<rect x="${f2(-sz/2)}" y="${f2(-sz/2)}" width="${f2(sz)}" height="${f2(sz)}" rx="${f2(1.8*k)}" fill="${I.c}" stroke="var(--surface)" stroke-width="${f2(.7*k)}"/><g transform="translate(${f2(-2.6*k)} ${f2(-2.6*k)}) scale(${f2(5.2*k/24)})" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">${I.g}</g>${zm.z>=1.6||sel?lab(sz/2+1.5*k,1.8*k,esc(x.name)):""}</g>`})}
+  if(mode!=="stand"||F.rast)RAST.filter(x=>inV(x.at)).forEach(x=>{const f=freeSpots(x),sz=7.2*k;s+=`<g transform="translate(${f1(x.at[0]+5*k)} ${f1(x.at[1]-5*k)})"><rect x="${f2(-sz/2)}" y="${f2(-sz/2)}" width="${f2(sz)}" height="${f2(sz)}" rx="${f2(1.2*k)}" fill="#1f5fbf"/><text y="${f2(2.2*k)}" text-anchor="middle" style="font:800 ${f2(5.4*k)}px var(--display);fill:#fff">P</text>${lab(5*k,2*k,f+" frei")}</g>`});
+  (helpers||[]).forEach(h=>s+=`<g transform="translate(${f1(h.x)} ${f1(h.y)})"><circle r="${f2(3.2*k)}" fill="var(--ok)" stroke="var(--surface)" stroke-width="${f2(k)}"/>${lab(4.5*k,1.8*k,esc(h.plate)+" hilft")}</g>`);
+  s+=`<g transform="translate(${f1(p.x)} ${f1(p.y)}) rotate(${hd.toFixed(0)}) scale(${f2(k)})"><circle r="7" fill="color-mix(in srgb,var(--accent) 22%,transparent)"/><path d="M0 -5.5 L4 4.5 L0 2.2 L-4 4.5Z" fill="var(--accent)" stroke="var(--surface)" stroke-width=".8"/></g></svg>`;
+  const ctl=mode==="stand"?`<div class="mapctl"><button type="button" id="mz-in" aria-label="Hineinzoomen">+</button><button type="button" id="mz-out" aria-label="Herauszoomen">−</button><button type="button" id="mz-c" aria-label="Auf meine Position zentrieren">◎</button></div><div class="mapzoom mono">${zm.z>=1?"×"+fmt(zm.z,1):"×"+fmt(zm.z,2)}</div>`:"";
+  return `<div class="dmapw">${s}${ctl}</div><div class="legend mini"><span><i style="background:var(--accent)"></i>Ihre Route</span><span><i style="background:#f08a00;width:7px;height:7px"></i>Notrufsäule</span><span><i style="background:#1f5fbf;width:7px;height:7px"></i>Rastplatz</span>${mode==="stand"?`<span><i style="background:#0f8a5f;width:7px;height:7px"></i>Tankstelle</span><span><i style="background:#8a3fd1;width:7px;height:7px"></i>Laden</span>`:'<span><i style="background:var(--ok);width:7px;height:7px;border-radius:50%"></i>Ersthelfer</span>'}</div>`}
+function poiCard(t,p){const F=S.me.poiF,dist=x=>Math.hypot(x.at[0]-p.x,x.at[1]-p.y)*KM_PX;
+  const list=POI.filter(x=>F[x.type]).map(x=>({...x,km:dist(x)})).sort((a,b)=>a.km-b.km).slice(0,5),sel=POI.find(x=>x.id===S.me.poi);
+  const walk=km=>km<=1.5?` · ${Math.max(1,Math.round(km/4.5*60))} min zu Fuß`:"";
+  const det=x=>{const o=openNow(x.hours),km=dist(x);return `<div class="poidet"><div class="row2 sb"><div><div class="mini">${x.sub}</div><h4>${esc(x.name)}</h4></div><button class="bx" id="poi-x" type="button" aria-label="Details schließen">×</button></div>
+    <div class="row2"><span class="pill ${o?"ok":"crit"}"><i></i>${o?"jetzt geöffnet":"jetzt geschlossen"} · ${x.hours}</span><span class="pill ${x.lkw?"ok":"warn"}"><i></i>${x.lkw?"LKW-Zufahrt und Parken":"kein LKW-Parkplatz"}</span></div>
+    <div class="mini">${fmt(km,1)} km Luftlinie${walk(km)}${x.diesel?` · Diesel ${fmt(x.diesel,2)} €/l`:""} · ${x.ex.join(", ")}</div>
+    ${x.lkw?"":`<div class="mini">Tipp: LKW auf dem nächsten Rastplatz abstellen und zu Fuß gehen.</div>`}</div>`};
+  return `<div class="dcard"><div class="row2 sb"><h4>In der Nähe</h4><span class="mini">Werte erfunden (Demo)</span></div>
+   <div class="chips">${[["tank","Tankstellen"],["shop","Läden"],["rast","Rastplätze"]].map(([k,l])=>`<button class="chip f" data-pf="${k}" aria-pressed="${F[k]}" type="button">${l}</button>`).join("")}</div>
+   ${sel?det(sel):'<div class="mini">Symbol auf der Karte antippen für Details.</div>'}
+   ${list.map(x=>{const o=openNow(x.hours);return `<button class="next poirow" data-poisel="${x.id}" type="button"><span class="ic" style="color:${POI_ICON[x.type].c}"><svg viewBox="0 0 24 24">${POI_ICON[x.type].g}</svg></span><span><b>${esc(x.name)}</b><small>${x.sub} · ${o?"geöffnet":"geschlossen"}${x.lkw?" · LKW-tauglich":""}${x.diesel?` · ${fmt(x.diesel,2)} €/l`:""}</small></span><span class="km">${fmt(x.km,1)} km</span></button>`}).join("")}</div>`}
+function wireMap(){const svg=$("dmap");if(!svg)return;const st=S.me,zm=st.map,t=myTruck(),p=posOf(t);
+  const vb=()=>{const W=170/zm.z,H=126/zm.z;svg.setAttribute("viewBox",`${(p.x+zm.dx-W/2).toFixed(1)} ${(p.y+zm.dy-H/2).toFixed(1)} ${W.toFixed(1)} ${H.toFixed(1)}`)};
+  const zoom=f=>{zm.z=clamp(zm.z*f,.5,4);renderDrv(true)};
+  $("mz-in").onclick=()=>zoom(1.5);$("mz-out").onclick=()=>zoom(1/1.5);$("mz-c").onclick=()=>{zm.dx=0;zm.dy=0;zm.z=1;renderDrv(true)};
+  const ptrs=new Map();let start=null,pinch=null,moved=false;
+  svg.onpointerdown=e=>{try{svg.setPointerCapture(e.pointerId)}catch(_){ }ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});st.dragging=true;moved=false;
+    if(ptrs.size===2){const [a,b]=[...ptrs.values()];pinch={d:Math.hypot(a.x-b.x,a.y-b.y)||1,z:zm.z};start=null}else start={x:e.clientX,y:e.clientY,dx:zm.dx,dy:zm.dy}};
+  svg.onpointermove=e=>{if(!ptrs.has(e.pointerId))return;ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    const ppu=svg.getBoundingClientRect().width/(170/zm.z);
+    if(ptrs.size>=2&&pinch){const [a,b]=[...ptrs.values()];zm.z=clamp(pinch.z*Math.hypot(a.x-b.x,a.y-b.y)/pinch.d,.5,4);moved=true;vb()}
+    else if(start){const mx=e.clientX-start.x,my=e.clientY-start.y;if(Math.abs(mx)+Math.abs(my)>5)moved=true;if(moved){zm.dx=clamp(start.dx-mx/ppu,-250,250);zm.dy=clamp(start.dy-my/ppu,-250,250);vb()}}};
+  const end=e=>{ptrs.delete(e.pointerId);if(ptrs.size)return;st.dragging=false;
+    if(!moved){const el=document.elementFromPoint(e.clientX,e.clientY),g=el&&el.closest("[data-poi]");if(g)st.poi=g.dataset.poi}
+    renderDrv(true)};
+  svg.onpointerup=end;svg.onpointercancel=end;
+  svg.addEventListener("wheel",e=>{e.preventDefault();zoom(e.deltaY<0?1.25:.8)},{passive:false});
+  $("d-body").querySelectorAll("[data-pf]").forEach(b=>b.onclick=()=>{st.poiF[b.dataset.pf]=!st.poiF[b.dataset.pf];renderDrv(true)});
+  $("d-body").querySelectorAll("[data-poisel]").forEach(b=>b.onclick=()=>{st.poi=b.dataset.poisel;const x=POI.find(q=>q.id===st.poi);if(x){zm.dx=x.at[0]-p.x;zm.dy=x.at[1]-p.y;zm.z=Math.max(zm.z,1.6)}renderDrv(true)});
+  if($("poi-x"))$("poi-x").onclick=()=>{st.poi=null;renderDrv(true)};
+}
+
+/* ---------- Start ---------- */
+initCount();for(let i=0;i<60;i++)tick(true);
+logA("info","10 Datenquellen verbunden (Demo).",null);
+logA("crit",`Standard-Navi hat Route A gewählt. Für M-AV 482 (${fmt(S.veh.h,2)} m, ${fmt(S.veh.w)} t) nicht befahrbar.`,"H1");
+initDrv();renderVehicle();renderBiz();refresh();renderT1();renderCount();drawCountBadge();applyView();connectDB();$("clock").textContent="Live · "+now();
+setInterval(()=>tick(false),1000);
+requestAnimationFrame(frame);
+</script>
+
+</body></html>
