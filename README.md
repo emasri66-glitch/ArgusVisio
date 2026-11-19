@@ -1,3 +1,5 @@
+<img src="assets/logo.png" alt="ArgusVisio Logo" width="120">
+
 # ArgusVisio – Prototyp
 
 Studentisches Gründungsprojekt von Miranda und Ehab (Mentor: Herr Spannaus).
